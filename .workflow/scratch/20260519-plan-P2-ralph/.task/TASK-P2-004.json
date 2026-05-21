@@ -1,0 +1,30 @@
+{
+  "id": "TASK-P2-004",
+  "title": "Preferences schema and Phase 2 settings UI",
+  "type": "feature",
+  "depends_on": ["TASK-P2-002"],
+  "read_first": [
+    "apps/desktop/src/lib/api.ts",
+    "apps/desktop/src/App.vue",
+    "apps/desktop/src-tauri/src/lib.rs",
+    "crates/sright-core/src/config.rs",
+    "apps/desktop/package.json"
+  ],
+  "action": "Expose the new config schema in Tauri/Vue preferences while keeping the frontend stack minimal.",
+  "implementation": [
+    "Update TypeScript interfaces for dangerous_confirmation and menu dangerous flag.",
+    "Render Phase 2 action toggles using existing Vue SFC style.",
+    "Render a dangerous confirmation toggle defaulting to on.",
+    "Keep debug action visible only as part of the same menu list or a small diagnostics action; avoid introducing Pinia unless state becomes shared across multiple components.",
+    "Update Tauri command types only if Rust schema changes require it; save/load remains the same commands."
+  ],
+  "convergence": {
+    "criteria": [
+      "rg 'dangerous_confirmation' apps/desktop/src",
+      "rg 'file\\.move_to_trash' apps/desktop/src",
+      "rg 'copy\\.shell_escaped_path' apps/desktop/src",
+      "pnpm --filter @sright/desktop typecheck exits zero",
+      "pnpm --filter @sright/desktop build exits zero"
+    ]
+  }
+}

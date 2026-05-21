@@ -1,0 +1,28 @@
+{
+  "id": "TASK-P2-003",
+  "title": "CLI action execution, confirmation flag, and failure logs",
+  "type": "feature",
+  "depends_on": ["TASK-P2-002"],
+  "read_first": [
+    "crates/sright-cli/src/main.rs",
+    "crates/sright-cli/tests/cli_smoke.rs",
+    "crates/sright-core/src/actions.rs",
+    "crates/sright-core/src/config.rs"
+  ],
+  "action": "Make sright-cli expose Phase 2 actions safely without changing the existing action run shape except adding a confirmation flag.",
+  "implementation": [
+    "Add --confirmed-dangerous to action run.",
+    "Pass confirmed_dangerous into ActionRequest.",
+    "Keep existing config enabled/menu enabled gating.",
+    "When execute_action fails, log selected_count from the original request instead of 0.",
+    "Add CLI tests for representative copy action JSON, disabled menu blocking, unknown action blocking, dangerous action without confirmation failing, and dangerous action with confirmation in temp fixtures."
+  ],
+  "convergence": {
+    "criteria": [
+      "rg 'confirmed-dangerous' crates/sright-cli/src/main.rs",
+      "rg 'selected_count' crates/sright-cli/tests/cli_smoke.rs",
+      "rg 'file\\.delete_permanently' crates/sright-cli/tests/cli_smoke.rs",
+      "cargo test -p sright-cli --test cli_smoke exits zero"
+    ]
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "id": "TASK-P2-006",
+  "title": "Full Phase 2 verification and manual macOS smoke checklist",
+  "type": "verification",
+  "depends_on": ["TASK-P2-001", "TASK-P2-002", "TASK-P2-003", "TASK-P2-004", "TASK-P2-005"],
+  "read_first": [
+    "README.md",
+    "docs/requirements.md",
+    "docs/design.md",
+    "package.json",
+    "apps/desktop/package.json"
+  ],
+  "action": "Run full automated verification and record manual Finder smoke coverage for Phase 2.",
+  "implementation": [
+    "Run cargo fmt --all --check.",
+    "Run cargo test -p sright-core.",
+    "Run cargo test -p sright-cli --test cli_smoke.",
+    "Run cargo test --workspace.",
+    "Run pnpm --filter @sright/desktop typecheck and build.",
+    "Run xcodebuild FinderSync Debug build with CODE_SIGNING_ALLOWED=NO.",
+    "Manual smoke: create temp files/folders, enable Finder extension, invoke copy/info/folder operations/trash/delete with confirmation, and inspect actions.jsonl."
+  ],
+  "convergence": {
+    "criteria": [
+      "cargo fmt --all --check exits zero",
+      "cargo test --workspace exits zero",
+      "pnpm --filter @sright/desktop build exits zero",
+      "xcodebuild -project native/macos/sRightNative.xcodeproj -scheme SRightFinderSync -configuration Debug build CODE_SIGNING_ALLOWED=NO exits zero",
+      "manual smoke notes include copy.path, file.info, folder.create_from_filename, folder.dissolve, file.move_to_trash, file.delete_permanently"
+    ]
+  }
+}

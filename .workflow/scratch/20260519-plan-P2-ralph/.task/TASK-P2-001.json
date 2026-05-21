@@ -1,0 +1,29 @@
+{
+  "id": "TASK-P2-001",
+  "title": "RED: lock Phase 2 action schema and core behavior tests",
+  "type": "test",
+  "depends_on": [],
+  "read_first": [
+    "crates/sright-core/src/actions.rs",
+    "crates/sright-core/src/config.rs",
+    "crates/sright-core/tests/core_smoke.rs",
+    "docs/requirements.md",
+    "docs/design.md"
+  ],
+  "action": "Add failing tests for the Phase 2 action registry, default config menus, dangerous confirmation defaults, copy-path variants, file info, create-from-filename, dissolve-folder, trash/delete confirmation gating, and failure selected_count expectations.",
+  "implementation": [
+    "Extend crates/sright-core/tests/core_smoke.rs or split focused tests under crates/sright-core/tests/phase2_actions.rs.",
+    "Assert default_config includes all Phase 2 action ids plus debug.echo.",
+    "Assert dangerous_confirmation.enabled is true by default and includes file.move_to_trash and file.delete_permanently.",
+    "Use temp directories for create/dissolve/delete tests; do not touch user files.",
+    "Verify tests fail because production schema/actions do not exist yet."
+  ],
+  "convergence": {
+    "criteria": [
+      "rg 'copy\\.shell_escaped_path' crates/sright-core/tests",
+      "rg 'dangerous_confirmation' crates/sright-core/tests",
+      "rg 'file\\.delete_permanently' crates/sright-core/tests",
+      "cargo test -p sright-core exits non-zero before TASK-P2-002 implementation"
+    ]
+  }
+}

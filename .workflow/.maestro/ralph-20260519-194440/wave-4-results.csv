@@ -1,0 +1,2 @@
+id,skill_call,topic,job_id,item_id,row_index,source_id,status,attempt_count,last_error,result_json,reported_at,completed_at
+5,$quality-review phase 2,Ralph step 5/8: quality review phase 2,6f965c4a-8516-44ce-8f9a-fbec6e49a4d5,5,0,5,failed,1,worker finished without calling report_agent_job_result,,,2026-05-19T12:28:53+00:00

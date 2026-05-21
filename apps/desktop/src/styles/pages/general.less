@@ -1,0 +1,26 @@
+.guide {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: @space-md @space-xl;
+    align-items: start;
+
+    > div {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: @space-md @space-xl;
+        align-items: start;
+    }
+}
+
+.steps {
+    grid-column: 1 / -1;
+    margin: @space-xs 0 0;
+    padding-left: @space-2xl;
+    color: @color-body;
+    font-size: 14px;
+    line-height: 22px;
+
+    li + li {
+        margin-top: @space-sm;
+    }
+}

@@ -1,0 +1,31 @@
+{
+  "id": "TASK-P2-005",
+  "title": "FinderSync generic Phase 2 menu and native confirmation",
+  "type": "feature",
+  "depends_on": ["TASK-P2-003", "TASK-P2-004"],
+  "read_first": [
+    "native/macos/FinderSyncExtension/FinderSync.swift",
+    "native/macos/FinderSyncExtension/Info.plist",
+    "crates/sright-cli/src/main.rs",
+    "crates/sright-core/src/config.rs",
+    "docs/design.md"
+  ],
+  "action": "Replace debug-only FinderSync behavior with config-driven menu items and one generic CLI invocation path.",
+  "implementation": [
+    "Extend Swift SRightConfig/MenuItem decoding with dangerous_confirmation and dangerous.",
+    "Build one NSMenuItem for each enabled menu item in config.menus.",
+    "Store action id on NSMenuItem.representedObject and route all clicks through one @objc handler.",
+    "Collect selectedItemURLs paths exactly once per action.",
+    "If the item is dangerous and config confirmation is enabled, show an NSAlert; only append --confirmed-dangerous when user confirms.",
+    "Invoke sright-cli action run --id <action-id> --path <path> for each selected path, preserving current CLI executable discovery."
+  ],
+  "convergence": {
+    "criteria": [
+      "rg 'representedObject' native/macos/FinderSyncExtension/FinderSync.swift",
+      "rg 'confirmed-dangerous' native/macos/FinderSyncExtension/FinderSync.swift",
+      "rg 'NSAlert' native/macos/FinderSyncExtension/FinderSync.swift",
+      "rg 'debugActionID' native/macos/FinderSyncExtension/FinderSync.swift exits non-zero or only appears in legacy diagnostic code",
+      "xcodebuild -project native/macos/sRightNative.xcodeproj -scheme SRightFinderSync -configuration Debug build CODE_SIGNING_ALLOWED=NO exits zero"
+    ]
+  }
+}

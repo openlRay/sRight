@@ -1,0 +1,2 @@
+id,skill_call,topic
+"2","$maestro-execute phase 2 --dir .workflow/.maestro/ralph-20260519-194440 --plan .workflow/scratch/20260519-plan-P2-ralph/plan.json","Ralph step 2/8: execute phase 2 implementation"

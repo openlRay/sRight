@@ -1,0 +1,140 @@
+{
+  "phase": 2,
+  "title": "基础文件能力",
+  "skill_call": "$maestro-plan phase 2 --dir .workflow/.maestro/ralph-20260519-194440",
+  "mode": "planning",
+  "production_code_edits": false,
+  "summary": "Implement Phase 2 as a tests-first expansion of the existing Rust action/config/log core, then wire the same action schema through CLI, Tauri/Vue preferences, and Swift FinderSync. Keep the current Tauri 2 + Vue 3 + TypeScript + pnpm + Vite baseline; add no frontend dependency unless the UI state becomes complex enough to justify Pinia or icons need lucide-vue-next.",
+  "source_context": [
+    ".workflow/.maestro/ralph-20260519-194440/wave-0-results.csv",
+    "docs/requirements.md",
+    "docs/design.md",
+    ".workflow/scratch/20260519-plan-P2-ralph/exploration-results.csv"
+  ],
+  "action_ids": [
+    "copy.path",
+    "copy.real_path",
+    "copy.name",
+    "copy.parent_path",
+    "copy.shell_escaped_path",
+    "file.move_to_trash",
+    "file.delete_permanently",
+    "folder.create_from_filename",
+    "folder.dissolve",
+    "file.info"
+  ],
+  "schema_decisions": {
+    "ActionRequest": {
+      "action_id": "String",
+      "paths": "Vec<PathBuf>",
+      "confirmed_dangerous": "bool, default false"
+    },
+    "ActionResult": {
+      "action_id": "String",
+      "selected_count": "usize",
+      "message": "String",
+      "payload": "serde_json::Value for clipboard text or file info details"
+    },
+    "ActionDescriptor": {
+      "id": "String",
+      "title": "String",
+      "dangerous": "bool",
+      "selection": "single | multiple | any",
+      "default_enabled": "bool"
+    },
+    "SRightConfig": {
+      "enabled": "bool",
+      "show_icons": "bool",
+      "merge_groups": "bool",
+      "dangerous_confirmation": "DangerousConfirmationConfig",
+      "menus": "Vec<MenuItem>"
+    },
+    "DangerousConfirmationConfig": {
+      "enabled": "bool, default true",
+      "action_ids": "Vec<String>, default all dangerous action ids"
+    },
+    "MenuItem": {
+      "id": "String",
+      "title": "String",
+      "enabled": "bool",
+      "dangerous": "bool"
+    }
+  },
+  "dangerous_confirmation_default": "Default config requires confirmation for file.move_to_trash and file.delete_permanently. CLI/core must reject dangerous actions unless confirmed_dangerous is true when confirmation is enabled. FinderSync shows native confirmation before invoking CLI and passes --confirmed-dangerous only after user confirms. Tauri preferences expose the setting, default on.",
+  "macos_boundaries": [
+    "Rust core owns path transformations, metadata/file info, temp-dir-testable folder operations, and final dispatch errors.",
+    "Move to Trash should use a small macOS-compatible implementation boundary; prefer an adapter/helper that can be tested with temp fixtures and can later swap to NSWorkspace/FileManager behavior if needed.",
+    "Permanent delete uses std::fs remove_file/remove_dir_all only after explicit confirmation and only on selected paths.",
+    "Clipboard writes should be isolated behind a helper so tests can assert returned payload text without depending on a user clipboard.",
+    "FinderSync only builds menus, collects selectedItemURLs, confirms dangerous actions with native UI, and shells out to sright-cli."
+  ],
+  "waves": [
+    {
+      "wave": 1,
+      "label": "RED: core contracts",
+      "tasks": ["TASK-P2-001"]
+    },
+    {
+      "wave": 2,
+      "label": "GREEN: core file actions",
+      "tasks": ["TASK-P2-002"]
+    },
+    {
+      "wave": 3,
+      "label": "CLI and logging",
+      "tasks": ["TASK-P2-003"]
+    },
+    {
+      "wave": 4,
+      "label": "Preferences schema and UI",
+      "tasks": ["TASK-P2-004"]
+    },
+    {
+      "wave": 5,
+      "label": "FinderSync generic menu",
+      "tasks": ["TASK-P2-005"]
+    },
+    {
+      "wave": 6,
+      "label": "Full verification",
+      "tasks": ["TASK-P2-006"]
+    }
+  ],
+  "task_ids": [
+    "TASK-P2-001",
+    "TASK-P2-002",
+    "TASK-P2-003",
+    "TASK-P2-004",
+    "TASK-P2-005",
+    "TASK-P2-006"
+  ],
+  "verification_commands": [
+    "cargo fmt --all --check",
+    "cargo test -p sright-core",
+    "cargo test -p sright-cli --test cli_smoke",
+    "cargo test --workspace",
+    "pnpm --filter @sright/desktop typecheck",
+    "pnpm --filter @sright/desktop build",
+    "xcodebuild -project native/macos/sRightNative.xcodeproj -scheme SRightFinderSync -configuration Debug build CODE_SIGNING_ALLOWED=NO"
+  ],
+  "confidence": {
+    "feasibility": 82,
+    "requirements_coverage": 88,
+    "testability": 78,
+    "integration_risk": 66,
+    "maintainability": 80,
+    "overall": 79,
+    "readiness_gate": "pass_with_known_risks",
+    "known_risks": [
+      "FinderSync confirmation UI and sandbox behavior need packaged-app smoke testing.",
+      "Rust config, TypeScript interfaces, and Swift Decodable structs can drift unless schema changes are made in one task.",
+      "Trash implementation may need a macOS-specific adapter dependency or native bridge after initial temp-dir tests."
+    ]
+  },
+  "plan_check": {
+    "coverage": "covers all Phase 2 requested actions, dangerous confirmation, logging, CLI, Tauri/Vue, and FinderSync",
+    "highest_complexity_task": "TASK-P2-005",
+    "pressure_pass": "FinderSync must not reimplement file operations; it only maps menu item representedObject to action id, confirms if config marks action dangerous, and invokes CLI with paths.",
+    "collision_detection": "non-blocking scan found only Ralph status/wave files and this scratch plan; no same-milestone plan.json collision found"
+  }
+}

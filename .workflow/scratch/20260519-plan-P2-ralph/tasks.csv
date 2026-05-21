@@ -1,0 +1,4 @@
+id,title,description,angle
+"1","Explore: Architecture","Map Phase 2 implementation boundaries in Rust core, CLI, Tauri commands, Vue API/app, and FinderSync. Read only; do not edit files.","architecture"
+"2","Explore: Patterns","Find existing action/config/log/menu patterns and recommend concrete Phase 2 action IDs/schema/default dangerous confirmation behavior. Read only; do not edit files.","patterns"
+"3","Explore: Tests","Map current test infrastructure and propose tests-first verification commands for Phase 2. Read only; do not edit files.","tests"

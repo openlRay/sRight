@@ -1,0 +1,33 @@
+{
+  "id": "TASK-P2-002",
+  "title": "GREEN: implement core action registry and file operations",
+  "type": "feature",
+  "depends_on": ["TASK-P2-001"],
+  "read_first": [
+    "crates/sright-core/src/actions.rs",
+    "crates/sright-core/src/config.rs",
+    "crates/sright-core/src/lib.rs",
+    "crates/sright-core/Cargo.toml",
+    "crates/sright-core/tests/core_smoke.rs"
+  ],
+  "action": "Implement the minimum Rust core code needed to pass Phase 2 core tests.",
+  "implementation": [
+    "Add ActionDescriptor registry with ids copy.path, copy.real_path, copy.name, copy.parent_path, copy.shell_escaped_path, file.move_to_trash, file.delete_permanently, folder.create_from_filename, folder.dissolve, file.info.",
+    "Extend ActionRequest with confirmed_dangerous and ActionResult with optional JSON payload if tests require structured info.",
+    "Extend SRightConfig with DangerousConfirmationConfig defaulting to enabled true for dangerous action ids.",
+    "Implement copy variants as returned payload/message first; isolate actual clipboard writes behind a helper to keep tests deterministic.",
+    "Implement file.info from std::fs metadata and canonicalized path.",
+    "Implement create folder from filename by creating sibling folders named from selected file stems.",
+    "Implement dissolve folder by moving children to the folder parent and rejecting collisions.",
+    "Implement permanent delete only when confirmed_dangerous is true; implement move_to_trash behind a small helper boundary with temp-dir-testable behavior."
+  ],
+  "convergence": {
+    "criteria": [
+      "rg 'struct ActionDescriptor' crates/sright-core/src",
+      "rg 'DangerousConfirmationConfig' crates/sright-core/src",
+      "rg 'copy\\.real_path' crates/sright-core/src",
+      "rg 'folder\\.dissolve' crates/sright-core/src",
+      "cargo test -p sright-core exits zero"
+    ]
+  }
+}

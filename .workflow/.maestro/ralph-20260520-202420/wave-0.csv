@@ -1,0 +1,2 @@
+id,skill_call,topic
+"0","$maestro-analyze frontend react migration --requirements ""Migrate apps/desktop from Vue to React + TypeScript + Vite + React Router + Zustand + Less; introduce HeroUI and refactor frontend components to HeroUI; preserve Tauri 2, Rust commands, FinderSync, pnpm workspace, DESIGN.md visual language, package script compatibility, and local packaging""","Ralph step 0/8: analyze React + HeroUI frontend migration"

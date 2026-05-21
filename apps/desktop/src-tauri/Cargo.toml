@@ -1,0 +1,20 @@
+[package]
+name = "sright-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+build = "build.rs"
+
+[lib]
+name = "sright_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sright-core.workspace = true
+tauri = { version = "2", features = ["image-png", "tray-icon"] }
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }

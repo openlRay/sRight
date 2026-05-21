@@ -1,0 +1,2 @@
+id,skill_call,topic,job_id,item_id,row_index,source_id,status,attempt_count,last_error,result_json,reported_at,completed_at
+5,$quality-review phase 2 --retry,Ralph step 5/8 retry: quality review phase 2,4d4cdf22-3987-4da8-bf6c-16f51bb1763e,5,0,5,failed,1,worker finished without calling report_agent_job_result,,,2026-05-20T02:35:20+00:00

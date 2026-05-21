@@ -1,0 +1,2 @@
+id,skill_call,topic
+"9","$maestro-execute frontend react migration --fix review-gaps --dir .workflow/.maestro/ralph-20260520-202420","Ralph fix after post-review BLOCK: router provider crash, nested interactive row, duplicate template rename save, ARIA table semantics"

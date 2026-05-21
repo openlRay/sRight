@@ -1,0 +1,2 @@
+id,skill_call,topic
+"0","$maestro-analyze phase 2 --requirements docs/requirements.md --design docs/design.md --extra ""front-end stack must align with t8y2/dbx baseline""","Ralph step 0/8: analyze phase 2 and dbx frontend stack alignment"

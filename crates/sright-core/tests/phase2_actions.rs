@@ -1,0 +1,222 @@
+use std::fs;
+use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use serde_json::Value;
+use sright_core::{
+    action_descriptors, default_config, execute_action, ActionRequest, DangerousConfirmationConfig,
+};
+
+static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+#[test]
+fn default_config_includes_phase2_menus_and_dangerous_confirmation() {
+    let config = default_config();
+    let menu_ids = config
+        .menus
+        .iter()
+        .map(|menu| menu.id.as_str())
+        .collect::<Vec<_>>();
+
+    for id in [
+        "debug.echo",
+        "copy.path",
+        "copy.real_path",
+        "copy.name",
+        "copy.parent_path",
+        "copy.shell_escaped_path",
+        "file.move_to_trash",
+        "file.delete_permanently",
+        "folder.create_from_filename",
+        "folder.dissolve",
+        "file.info",
+    ] {
+        assert!(menu_ids.contains(&id), "missing default menu {id}");
+    }
+
+    assert!(config.dangerous_confirmation.enabled);
+    assert!(config
+        .dangerous_confirmation
+        .action_ids
+        .contains(&"file.move_to_trash".to_string()));
+    assert!(config
+        .dangerous_confirmation
+        .action_ids
+        .contains(&"file.delete_permanently".to_string()));
+}
+
+#[test]
+fn action_registry_marks_dangerous_actions() {
+    let descriptors = action_descriptors();
+
+    assert!(descriptors
+        .iter()
+        .any(|action| action.id == "copy.shell_escaped_path"));
+    assert!(descriptors
+        .iter()
+        .any(|action| action.id == "file.delete_permanently" && action.dangerous));
+    assert!(descriptors
+        .iter()
+        .any(|action| action.id == "file.move_to_trash" && action.dangerous));
+}
+
+#[test]
+fn copy_variants_return_expected_payload_text() {
+    let root = temp_dir("copy");
+    fs::create_dir_all(&root).unwrap();
+    let file = root.join("hello world.txt");
+    fs::write(&file, "hello").unwrap();
+
+    assert_payload_text("copy.path", &[file.clone()], &file.display().to_string());
+    assert_payload_text("copy.name", &[file.clone()], "hello world.txt");
+    assert_payload_text(
+        "copy.parent_path",
+        &[file.clone()],
+        &root.display().to_string(),
+    );
+    assert_payload_text(
+        "copy.shell_escaped_path",
+        &[file.clone()],
+        &format!("'{}'", file.display()),
+    );
+
+    let real_path = execute_action(request("copy.real_path", &[file], false))
+        .unwrap()
+        .payload["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(PathBuf::from(real_path).is_absolute());
+}
+
+#[test]
+fn file_info_returns_metadata_payload() {
+    let root = temp_dir("info");
+    fs::create_dir_all(&root).unwrap();
+    let file = root.join("info.txt");
+    fs::write(&file, "hello").unwrap();
+
+    let result = execute_action(request("file.info", &[file.clone()], false)).unwrap();
+
+    assert_eq!(result.selected_count, 1);
+    assert_eq!(result.payload["items"][0]["name"], "info.txt");
+    assert_eq!(result.payload["items"][0]["is_file"], true);
+    assert_eq!(
+        result.payload["items"][0]["path"],
+        file.display().to_string()
+    );
+}
+
+#[test]
+fn create_folder_from_filename_copies_file_into_created_folder() {
+    let root = temp_dir("folder-from-file");
+    fs::create_dir_all(&root).unwrap();
+    let file = root.join("archive.tar.gz");
+    fs::write(&file, "data").unwrap();
+
+    let result = execute_action(request(
+        "folder.create_from_filename",
+        &[file.clone()],
+        false,
+    ))
+    .unwrap();
+
+    assert_eq!(result.selected_count, 1);
+    let folder = root.join("archive.tar");
+    assert!(folder.is_dir());
+    assert!(file.exists());
+    assert_eq!(fs::read_to_string(&file).unwrap(), "data");
+    assert_eq!(
+        fs::read_to_string(folder.join("archive.tar.gz")).unwrap(),
+        "data"
+    );
+    assert_eq!(
+        result.payload["copied"][0],
+        folder.join("archive.tar.gz").display().to_string()
+    );
+}
+
+#[test]
+fn dissolve_folder_moves_children_to_parent_and_rejects_collisions() {
+    let root = temp_dir("dissolve");
+    let folder = root.join("Folder");
+    fs::create_dir_all(&folder).unwrap();
+    fs::write(folder.join("child.txt"), "child").unwrap();
+
+    execute_action(request("folder.dissolve", &[folder.clone()], false)).unwrap();
+
+    assert!(root.join("child.txt").exists());
+    assert!(!folder.exists());
+
+    let collision_folder = root.join("Collision");
+    fs::create_dir_all(&collision_folder).unwrap();
+    fs::write(collision_folder.join("child.txt"), "new").unwrap();
+    let error = execute_action(request("folder.dissolve", &[collision_folder], false))
+        .expect_err("collision should fail");
+    assert!(error.to_string().contains("already exists"));
+}
+
+#[test]
+fn dangerous_actions_require_confirmation() {
+    let root = temp_dir("dangerous");
+    fs::create_dir_all(&root).unwrap();
+    let file = root.join("delete-me.txt");
+    fs::write(&file, "bye").unwrap();
+
+    let error = execute_action(request("file.delete_permanently", &[file.clone()], false))
+        .expect_err("delete should require confirmation");
+    assert!(error.to_string().contains("requires confirmation"));
+    assert!(file.exists());
+
+    execute_action(request("file.delete_permanently", &[file.clone()], true)).unwrap();
+    assert!(!file.exists());
+}
+
+#[test]
+fn move_to_trash_uses_testable_trash_boundary() {
+    let _guard = ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let root = temp_dir("trash");
+    let trash_dir = root.join("UserTrash");
+    fs::create_dir_all(&root).unwrap();
+    let file = root.join("trash-me.txt");
+    fs::write(&file, "trash").unwrap();
+    std::env::set_var("SRIGHT_TRASH_DIR", &trash_dir);
+
+    execute_action(request("file.move_to_trash", &[file.clone()], true)).unwrap();
+
+    assert!(!file.exists());
+    assert!(trash_dir.join("trash-me.txt").exists());
+
+    std::env::remove_var("SRIGHT_TRASH_DIR");
+}
+
+#[test]
+fn dangerous_confirmation_config_defaults_to_all_dangerous_actions() {
+    let config = DangerousConfirmationConfig::default();
+
+    assert!(config.requires_confirmation("file.move_to_trash"));
+    assert!(config.requires_confirmation("file.delete_permanently"));
+    assert!(!config.requires_confirmation("copy.path"));
+}
+
+fn assert_payload_text(action_id: &str, paths: &[PathBuf], expected: &str) {
+    let result = execute_action(request(action_id, paths, false)).unwrap();
+    assert_eq!(result.payload["text"], Value::String(expected.to_string()));
+}
+
+fn request(action_id: &str, paths: &[PathBuf], confirmed_dangerous: bool) -> ActionRequest {
+    ActionRequest {
+        action_id: action_id.to_string(),
+        paths: paths.to_vec(),
+        confirmed_dangerous,
+    }
+}
+
+fn temp_dir(label: &str) -> PathBuf {
+    let suffix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!("sright-phase2-{label}-{suffix}"))
+}

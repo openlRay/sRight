@@ -1,0 +1,2 @@
+id,skill_call,topic,job_id,item_id,row_index,source_id,status,attempt_count,last_error,result_json,reported_at,completed_at
+2,$maestro-execute phase 2 --dir .workflow/.maestro/ralph-20260519-194440 --plan .workflow/scratch/20260519-plan-P2-ralph/plan.json,Ralph step 2/8: execute phase 2 implementation,6ca0dad7-1390-48dd-9a55-857907dc521e,2,0,2,failed,1,worker finished without calling report_agent_job_result,,,2026-05-19T12:05:33+00:00

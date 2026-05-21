@@ -1,0 +1,2 @@
+id,skill_call,topic
+"0","$maestro-analyze phase 1 -y --requirements docs/requirements.md --design docs/design.md","Ralph step 0/4: analyze phase 1 from requirements and design docs"
