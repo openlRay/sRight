@@ -9,7 +9,7 @@ pub use actions::{
 };
 pub use config::{
     default_config, load_or_init_config, save_config, ArchiveConfig, CustomScript,
-    DangerousConfirmationConfig, FavoriteDirectory, FileTemplate, ImageConfig, MenuItem, OpenApp,
-    SRightConfig, ToolboxConfig,
+    DangerousConfirmationConfig, FavoriteDirectory, FileTemplate, ImageConfig, MenuItem,
+    MenuTreeItem, OpenApp, SRightConfig, ToolboxConfig,
 };
 pub use logging::{append_action_log, read_recent_logs, ActionLogEntry, ActionLogStatus};

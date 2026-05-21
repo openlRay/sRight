@@ -10,12 +10,17 @@
         "frontendDist": "../dist"
     },
     "app": {
+        "macOSPrivateApi": true,
         "windows": [
-      {
-        "label": "main",
-        "title": "sRight Preferences",
-        "width": 900,
-        "height": 720,
+            {
+                "label": "main",
+                "title": "超级右键",
+                "width": 900,
+                "height": 720,
+                "center": true,
+                "decorations": false,
+                "transparent": true,
+                "shadow": true,
                 "minWidth": 640,
                 "minHeight": 520
             }
@@ -25,14 +30,8 @@
         }
     },
     "bundle": {
-    "active": true,
-    "targets": "app",
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.png"
-    ]
-  }
+        "active": true,
+        "targets": "app",
+        "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.png"]
+    }
 }

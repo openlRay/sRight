@@ -92,13 +92,8 @@ pub type ActionExecutionResult<T> = Result<T, ActionError>;
 
 pub fn action_descriptors() -> Vec<ActionDescriptor> {
     vec![
-        descriptor("debug.echo", "sRight Debug Echo", false),
-        descriptor("copy.path", "复制完整路径", false),
-        descriptor("copy.real_path", "复制真实路径", false),
+        descriptor("copy.path", "拷贝路径", false),
         descriptor("copy.name", "复制名称", false),
-        descriptor("copy.parent_path", "复制父目录路径", false),
-        descriptor("copy.shell_escaped_path", "复制 Shell Escaped Path", false),
-        descriptor("file.move_to_trash", "移到废纸篓", true),
         descriptor("file.delete_permanently", "彻底删除", true),
         descriptor("folder.create_from_filename", "根据文件名创建文件夹", false),
         descriptor("folder.dissolve", "解散文件夹", false),
@@ -166,21 +161,22 @@ pub fn action_descriptors() -> Vec<ActionDescriptor> {
 }
 
 pub fn execute_action(request: ActionRequest) -> ActionExecutionResult<ActionResult> {
-    execute_action_with_favorite_dirs(request, &[])
+    execute_action_with_directories(request, &[], &[])
 }
 
 pub fn execute_configured_action(
     request: ActionRequest,
     config: &SRightConfig,
 ) -> ActionExecutionResult<ActionResult> {
-    execute_action_with_favorite_dirs(request, &config.favorite_dirs)
+    execute_action_with_directories(request, &config.favorite_dirs, &config.send_dirs)
 }
 
-fn execute_action_with_favorite_dirs(
+fn execute_action_with_directories(
     request: ActionRequest,
     favorite_dirs: &[FavoriteDirectory],
+    send_dirs: &[FavoriteDirectory],
 ) -> ActionExecutionResult<ActionResult> {
-    let descriptor = action_descriptor_for(&request.action_id, favorite_dirs)
+    let descriptor = action_descriptor_for(&request.action_id, favorite_dirs, send_dirs)
         .ok_or_else(|| ActionError::UnknownAction(request.action_id.clone()))?;
 
     if descriptor.dangerous && !request.confirmed_dangerous {
@@ -200,7 +196,7 @@ fn execute_action_with_favorite_dirs(
         .strip_prefix("send.copy_to.")
         .map(str::to_string)
     {
-        return send_to_favorite(request, &favorite_id, SendMode::Copy, favorite_dirs);
+        return send_to_favorite(request, &favorite_id, SendMode::Copy, send_dirs);
     }
 
     if let Some(favorite_id) = request
@@ -208,42 +204,18 @@ fn execute_action_with_favorite_dirs(
         .strip_prefix("send.move_to.")
         .map(str::to_string)
     {
-        return send_to_favorite(request, &favorite_id, SendMode::Move, favorite_dirs);
+        return send_to_favorite(request, &favorite_id, SendMode::Move, send_dirs);
     }
 
     match request.action_id.as_str() {
-        "debug.echo" => Ok(ActionResult {
-            action_id: request.action_id,
-            selected_count: request.paths.len(),
-            message: debug_echo_message(&request.paths),
-            payload: json!({ "paths": request.paths }),
-        }),
         "copy.path" => copy_text_result(request, "Copied path", |path| {
             Ok(path.display().to_string())
-        }),
-        "copy.real_path" => copy_text_result(request, "Copied real path", |path| {
-            path.canonicalize()
-                .map(|path| path.display().to_string())
-                .map_err(|source| ActionError::Io {
-                    path: path.to_path_buf(),
-                    source,
-                })
         }),
         "copy.name" => copy_text_result(request, "Copied name", |path| {
             path.file_name()
                 .map(|name| name.to_string_lossy().to_string())
                 .ok_or_else(|| ActionError::MissingFileName(path.display().to_string()))
         }),
-        "copy.parent_path" => copy_text_result(request, "Copied parent path", |path| {
-            path.parent()
-                .map(|parent| parent.display().to_string())
-                .ok_or_else(|| ActionError::MissingFileName(path.display().to_string()))
-        }),
-        "copy.shell_escaped_path" => {
-            copy_text_result(request, "Copied shell escaped path", |path| {
-                Ok(shell_escape(&path.display().to_string()))
-            })
-        }
         "file.info" => file_info(request),
         "new_file.custom" => create_new_file(request, "Untitled", ""),
         "new_file.text" => create_new_file(request, "Untitled.txt", ""),
@@ -293,7 +265,6 @@ fn execute_action_with_favorite_dirs(
         "folder.create_from_filename" => create_folders_from_filename(request),
         "folder.dissolve" => dissolve_folders(request),
         "file.delete_permanently" => delete_permanently(request),
-        "file.move_to_trash" => move_to_trash(request),
         action_id => Err(ActionError::UnknownAction(action_id.to_string())),
     }
 }
@@ -301,6 +272,7 @@ fn execute_action_with_favorite_dirs(
 fn action_descriptor_for(
     action_id: &str,
     favorite_dirs: &[FavoriteDirectory],
+    send_dirs: &[FavoriteDirectory],
 ) -> Option<ActionDescriptor> {
     if let Some(descriptor) = action_descriptors()
         .into_iter()
@@ -309,18 +281,25 @@ fn action_descriptor_for(
         return Some(descriptor);
     }
 
-    for (prefix, verb) in [
-        ("favorite.open.", "打开"),
-        ("send.copy_to.", "复制到"),
-        ("send.move_to.", "移动到"),
-    ] {
-        let Some(favorite_id) = action_id.strip_prefix(prefix) else {
-            continue;
-        };
+    if let Some(favorite_id) = action_id.strip_prefix("favorite.open.") {
         let Some(directory) = favorite_dirs
             .iter()
             .find(|directory| directory.id == favorite_id)
         else {
+            return None;
+        };
+        return Some(descriptor(
+            action_id,
+            &format!("打开{}", directory.title),
+            false,
+        ));
+    }
+
+    for (prefix, verb) in [("send.copy_to.", "复制到"), ("send.move_to.", "移动到")] {
+        let Some(send_id) = action_id.strip_prefix(prefix) else {
+            continue;
+        };
+        let Some(directory) = send_dirs.iter().find(|directory| directory.id == send_id) else {
             continue;
         };
         return Some(descriptor(
@@ -340,31 +319,6 @@ fn descriptor(id: &str, title: &str, dangerous: bool) -> ActionDescriptor {
         dangerous,
         selection: ActionSelection::Any,
         default_enabled: true,
-    }
-}
-
-fn debug_echo_message(paths: &[PathBuf]) -> String {
-    if paths.is_empty() {
-        return "Debug echo received no selected paths".to_string();
-    }
-
-    let preview = paths
-        .iter()
-        .take(3)
-        .map(|path| path.display().to_string())
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    if paths.len() > 3 {
-        format!(
-            "Debug echo received {} selected paths: {preview}, ...",
-            paths.len()
-        )
-    } else {
-        format!(
-            "Debug echo received {} selected paths: {preview}",
-            paths.len()
-        )
     }
 }
 
@@ -1049,74 +1003,6 @@ fn delete_permanently(request: ActionRequest) -> ActionExecutionResult<ActionRes
     })
 }
 
-fn move_to_trash(request: ActionRequest) -> ActionExecutionResult<ActionResult> {
-    require_selection(&request)?;
-    let mut trashed = Vec::new();
-    let trash_dir = user_trash_dir();
-    fs::create_dir_all(&trash_dir).map_err(|source| ActionError::Io {
-        path: trash_dir.clone(),
-        source,
-    })?;
-
-    for path in &request.paths {
-        let file_name = path
-            .file_name()
-            .ok_or_else(|| ActionError::MissingFileName(path.display().to_string()))?;
-        let target = unique_trash_target(&trash_dir, Path::new(file_name));
-        fs::rename(path, &target).map_err(|source| ActionError::Io {
-            path: path.clone(),
-            source,
-        })?;
-        trashed.push(target.display().to_string());
-    }
-
-    Ok(ActionResult {
-        action_id: request.action_id,
-        selected_count: request.paths.len(),
-        message: format!("Moved {} item(s) to trash", trashed.len()),
-        payload: json!({ "trashed": trashed }),
-    })
-}
-
-fn user_trash_dir() -> PathBuf {
-    if let Some(path) = env::var_os("SRIGHT_TRASH_DIR") {
-        return PathBuf::from(path);
-    }
-
-    env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".Trash")
-}
-
-fn unique_trash_target(trash_dir: &Path, file_name: &Path) -> PathBuf {
-    let target = trash_dir.join(file_name);
-    if !target.exists() {
-        return target;
-    }
-
-    let stem = file_name
-        .file_stem()
-        .map(|stem| stem.to_string_lossy())
-        .unwrap_or_else(|| file_name.as_os_str().to_string_lossy());
-    let extension = file_name
-        .extension()
-        .map(|extension| extension.to_string_lossy());
-
-    for index in 2.. {
-        let candidate_name = match &extension {
-            Some(extension) => format!("{stem} {index}.{extension}"),
-            None => format!("{stem} {index}"),
-        };
-        let candidate = trash_dir.join(candidate_name);
-        if !candidate.exists() {
-            return candidate;
-        }
-    }
-
-    unreachable!("unbounded trash target search should always return");
-}
-
 fn selected_output_dir(paths: &[PathBuf]) -> ActionExecutionResult<PathBuf> {
     let selected = paths
         .first()
@@ -1454,15 +1340,4 @@ fn require_selection(request: &ActionRequest) -> ActionExecutionResult<()> {
     }
 
     Ok(())
-}
-
-fn shell_escape(value: &str) -> String {
-    if value
-        .chars()
-        .all(|char| char.is_ascii_alphanumeric() || matches!(char, '/' | '.' | '_' | '-' | ':'))
-    {
-        return value.to_string();
-    }
-
-    format!("'{}'", value.replace('\'', "'\\''"))
 }

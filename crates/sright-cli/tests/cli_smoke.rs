@@ -31,7 +31,7 @@ fn cli_config_init_and_print_use_override_dir() {
         "stderr: {}",
         String::from_utf8_lossy(&print.stderr)
     );
-    assert!(String::from_utf8_lossy(&print.stdout).contains("debug.echo"));
+    assert!(String::from_utf8_lossy(&print.stdout).contains("copy.path"));
 }
 
 #[test]
@@ -45,7 +45,7 @@ fn cli_action_run_writes_jsonl_log() {
             "action",
             "run",
             "--id",
-            "debug.echo",
+            "copy.path",
             "--path",
             "/tmp/sright.txt",
         ])
@@ -68,7 +68,7 @@ fn cli_action_run_writes_jsonl_log() {
         "stderr: {}",
         String::from_utf8_lossy(&tail.stderr)
     );
-    assert!(String::from_utf8_lossy(&tail.stdout).contains("debug.echo"));
+    assert!(String::from_utf8_lossy(&tail.stdout).contains("copy.path"));
 }
 
 #[test]
@@ -160,7 +160,7 @@ fn cli_action_run_can_write_result_file() {
             "action",
             "run",
             "--id",
-            "debug.echo",
+            "copy.path",
             "--result-path",
             result_file.to_str().unwrap(),
             "--path",
@@ -175,7 +175,7 @@ fn cli_action_run_can_write_result_file() {
     );
     let contents = std::fs::read_to_string(result_file).unwrap();
     assert!(contents.contains("\"success\": true"));
-    assert!(contents.contains("\"action_id\": \"debug.echo\""));
+    assert!(contents.contains("\"action_id\": \"copy.path\""));
 }
 
 #[test]
@@ -228,7 +228,7 @@ fn cli_exports_imports_config_and_searches_logs() {
             "action",
             "run",
             "--id",
-            "debug.echo",
+            "copy.path",
             "--path",
             "/tmp/log-me",
         ])
@@ -238,11 +238,11 @@ fn cli_exports_imports_config_and_searches_logs() {
 
     let search = sright_cli()
         .env("SRIGHT_APP_SUPPORT_DIR", &support_dir)
-        .args(["logs", "search", "debug.echo"])
+        .args(["logs", "search", "copy.path"])
         .output()
         .expect("logs search should run");
     assert!(search.status.success());
-    assert!(String::from_utf8_lossy(&search.stdout).contains("debug.echo"));
+    assert!(String::from_utf8_lossy(&search.stdout).contains("copy.path"));
 
     let export_logs = sright_cli()
         .env("SRIGHT_APP_SUPPORT_DIR", &support_dir)

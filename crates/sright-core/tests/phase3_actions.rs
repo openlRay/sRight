@@ -86,6 +86,27 @@ fn default_config_includes_phase3_menus_templates_apps_and_favorites() {
         .favorite_dirs
         .iter()
         .any(|directory| directory.id == "downloads" && directory.enabled));
+    assert!(config
+        .send_dirs
+        .iter()
+        .any(|directory| directory.id == "downloads" && directory.enabled));
+
+    let top_level_titles = config
+        .menu_tree
+        .iter()
+        .map(|item| item.title.as_str())
+        .collect::<Vec<_>>();
+    assert!(top_level_titles.contains(&"新建文件"));
+    assert!(top_level_titles.contains(&"发送文件到"));
+    assert!(top_level_titles.contains(&"常用目录"));
+    assert!(top_level_titles.contains(&"工具箱"));
+    assert!(config.menu_tree.iter().any(|item| {
+        item.title == "工具箱"
+            && item
+                .children
+                .iter()
+                .any(|child| child.action_id.as_deref() == Some("copy.path"))
+    }));
 }
 
 #[test]
@@ -153,6 +174,44 @@ fn copy_and_move_to_downloads_use_configurable_destination_boundary() {
 }
 
 #[test]
+fn configured_send_directories_are_separate_from_favorites() {
+    let _guard = ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let root = temp_dir("separate-send-dirs");
+    let favorite = root.join("FavoriteWork");
+    let send = root.join("SendWork");
+    let source = root.join("source.txt");
+    let open_log = root.join("open.log");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(&source, "data").unwrap();
+    std::env::set_var("SRIGHT_OPEN_LOG_FILE", &open_log);
+
+    let mut config = default_config();
+    config.favorite_dirs.push(sright_core::FavoriteDirectory {
+        id: "work".to_string(),
+        title: "Work".to_string(),
+        path: favorite.display().to_string(),
+        enabled: true,
+    });
+    config.send_dirs.push(sright_core::FavoriteDirectory {
+        id: "work".to_string(),
+        title: "Work".to_string(),
+        path: send.display().to_string(),
+        enabled: true,
+    });
+
+    execute_configured_action(request("favorite.open.work", &[]), &config).unwrap();
+    execute_configured_action(request("send.copy_to.work", &[source.clone()]), &config).unwrap();
+
+    assert!(fs::read_to_string(open_log)
+        .unwrap()
+        .contains(&favorite.display().to_string()));
+    assert!(!favorite.join("source.txt").exists());
+    assert_eq!(fs::read_to_string(send.join("source.txt")).unwrap(), "data");
+
+    std::env::remove_var("SRIGHT_OPEN_LOG_FILE");
+}
+
+#[test]
 fn configured_favorite_directories_open_copy_and_move_by_id() {
     let _guard = ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
     let root = temp_dir("configured-favorite");
@@ -165,6 +224,12 @@ fn configured_favorite_directories_open_copy_and_move_by_id() {
 
     let mut config = default_config();
     config.favorite_dirs.push(sright_core::FavoriteDirectory {
+        id: "work".to_string(),
+        title: "Work".to_string(),
+        path: favorite.display().to_string(),
+        enabled: true,
+    });
+    config.send_dirs.push(sright_core::FavoriteDirectory {
         id: "work".to_string(),
         title: "Work".to_string(),
         path: favorite.display().to_string(),

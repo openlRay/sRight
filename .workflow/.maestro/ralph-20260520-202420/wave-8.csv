@@ -1,0 +1,2 @@
+id,skill_call,topic
+"14","$maestro-execute frontend react migration --fix tauri-capabilities-review-gaps --dir .workflow/.maestro/ralph-20260520-202420","Ralph fix after post-fix review BLOCK: Tauri capabilities/window controls and Favorites double-click side effect"

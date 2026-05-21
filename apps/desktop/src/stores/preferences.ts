@@ -2,38 +2,63 @@ import { create } from "zustand";
 import {
     loadConfig,
     openFinderExtensionSettings,
+    openFullDiskAccessSettings,
     openPathInFinder,
     pickDirectory,
-    runDebugAction,
+    pickTemplateFile,
     saveConfig,
     type FavoriteDirectory,
     type SRightConfig
 } from "../lib/api";
+import {
+    addFavoriteMenu,
+    addSendMenus,
+    defaultDirectoryPresets,
+    directoryTitle,
+    favoriteMenuId,
+    resetFavoriteMenus,
+    resetSendMenus,
+    sendMenuIds,
+    uniqueDirectoryId
+} from "../lib/directory-config";
+import { templateInfoFromPath } from "../lib/file-template-utils";
+import { setTemplateMenuEnabled, syncTemplateMenuTitle } from "../lib/template-menu-config";
 
-type TopLevelFlag = "enabled" | "show_icons" | "merge_groups";
+type TopLevelFlag = "enabled" | "show_icons" | "show_menu_bar_icon";
 
 interface PreferenceState {
     busy: boolean;
     config: SRightConfig | null;
-    settingsStatus: string;
     status: string;
     addFavoriteDirFromPicker: () => Promise<void>;
+    addSendDirFromPicker: () => Promise<void>;
+    addTemplateFromPicker: () => Promise<void>;
     openFavoriteDir: (directoryId: string) => Promise<void>;
     openExtensionSettings: () => Promise<void>;
+    openPermissionSettings: () => Promise<void>;
     persist: () => Promise<void>;
     refresh: () => Promise<void>;
     removeFavoriteDir: (directoryId: string) => Promise<void>;
+    removeSendDir: (directoryId: string) => Promise<void>;
+    removeTemplate: (templateId: string) => Promise<void>;
+    removeTemplates: (templateIds: string[]) => Promise<void>;
+    resetFavoriteDirs: () => Promise<void>;
+    resetSendDirs: () => Promise<void>;
     renameFavoriteDir: (directoryId: string, title: string) => Promise<void>;
+    renameSendDir: (directoryId: string, title: string) => Promise<void>;
     renameTemplate: (templateId: string, title: string) => Promise<void>;
     reorderFavoriteDirs: (fromDirectoryId: string, targetDirectoryId: string) => Promise<void>;
+    reorderSendDirs: (fromDirectoryId: string, targetDirectoryId: string) => Promise<void>;
     reorderTemplates: (fromTemplateId: string, targetTemplateId: string) => Promise<void>;
-    runDebug: () => Promise<void>;
     setCustomScriptCommand: (scriptId: string, command: string) => Promise<void>;
+    setDangerousActionConfirmation: (actionId: string, enabled: boolean) => Promise<void>;
     setDangerousConfirmationEnabled: (enabled: boolean) => Promise<void>;
+    setSettingsShortcut: (shortcut: string) => Promise<void>;
     setMenuEnabled: (actionId: string, enabled: boolean) => Promise<void>;
+    renameMenu: (actionId: string, title: string) => Promise<void>;
+    reorderMenus: (fromActionId: string, targetActionId: string) => Promise<void>;
     setTemplateEnabled: (templateId: string, enabled: boolean) => Promise<void>;
     setTemplateMainMenu: (templateId: string, enabled: boolean) => Promise<void>;
-    setToolboxProvider: (provider: string) => Promise<void>;
     setTopLevelFlag: (key: TopLevelFlag, enabled: boolean) => Promise<void>;
     toggleAllFavorites: (enabled: boolean) => Promise<void>;
     toggleCustomScript: (scriptId: string, enabled: boolean) => Promise<void>;
@@ -41,33 +66,17 @@ interface PreferenceState {
     toggleSendMenus: (prefix: "send.copy_to." | "send.move_to.", enabled: boolean) => Promise<void>;
 }
 
-function favoriteMenuIds(directoryId: string) {
-    return [`favorite.open.${directoryId}`, `send.copy_to.${directoryId}`, `send.move_to.${directoryId}`];
-}
-
-function uniqueFavoriteDirectoryId(config: SRightConfig, path: string) {
-    const baseId =
-        path
-            .split("/")
-            .filter(Boolean)
-            .at(-1)
-            ?.toLowerCase()
-            .replace(/[^a-z0-9]+/g, "_")
-            .replace(/^_+|_+$/g, "") || "directory";
-    const existingIds = new Set(config.favorite_dirs.map((directory) => directory.id));
-    let id = baseId;
-    let index = 2;
+function uniqueTemplateId(config: SRightConfig) {
+    const existingIds = new Set(config.file_templates.map((template) => template.id));
+    let index = config.file_templates.length + 1;
+    let id = `custom_${index}`;
 
     while (existingIds.has(id)) {
-        id = `${baseId}_${index}`;
         index += 1;
+        id = `custom_${index}`;
     }
 
     return id;
-}
-
-function directoryTitle(path: string) {
-    return path.split("/").filter(Boolean).at(-1) || path;
 }
 
 function setMenuEnabledInConfig(config: SRightConfig, actionId: string, enabled: boolean) {
@@ -75,28 +84,11 @@ function setMenuEnabledInConfig(config: SRightConfig, actionId: string, enabled:
     if (menu) {
         menu.enabled = enabled;
     }
-}
 
-function addFavoriteMenus(config: SRightConfig, directoryId: string, title: string, enabled: boolean) {
-    for (const [id, prefix] of [
-        [`favorite.open.${directoryId}`, "打开"],
-        [`send.copy_to.${directoryId}`, "复制到"],
-        [`send.move_to.${directoryId}`, "移动到"]
-    ] as const) {
-        const menu = config.menus.find((item) => item.id === id);
-        if (menu) {
-            menu.title = `${prefix}${title}`;
-            menu.enabled = enabled;
-        } else {
-            config.menus.push({
-                id,
-                title: `${prefix}${title}`,
-                enabled,
-                dangerous: false,
-                file_kinds: [],
-                extensions: []
-            });
-        }
+    const scriptId = actionId.startsWith("script.run.") ? actionId.slice("script.run.".length) : null;
+    const script = scriptId ? config.custom_scripts.find((item) => item.id === scriptId) : null;
+    if (script) {
+        script.enabled = enabled;
     }
 }
 
@@ -154,29 +146,38 @@ export const usePreferenceStore = create<PreferenceState>((set, get) => {
             await saveNextConfig(config);
         },
 
-        async runDebug() {
-            set({ busy: true });
+        async openExtensionSettings() {
             try {
-                const status = await runDebugAction();
-                set({ status });
+                await openFinderExtensionSettings();
             } finally {
-                set({ busy: false });
             }
         },
 
-        async openExtensionSettings() {
-            set({ busy: true, settingsStatus: "" });
+        async openPermissionSettings() {
             try {
-                await openFinderExtensionSettings();
-                set({ settingsStatus: "已打开系统设置，请在 Finder Extensions 中启用 SRightFinderSync。" });
+                await openFullDiskAccessSettings();
             } finally {
-                set({ busy: false });
             }
         },
 
         async setMenuEnabled(actionId, enabled) {
             await updateConfig((config) => {
                 setMenuEnabledInConfig(config, actionId, enabled);
+            });
+        },
+
+        async renameMenu(actionId, title) {
+            await updateConfig((config) => {
+                const menu = config.menus.find((item) => item.id === actionId);
+                if (menu) {
+                    menu.title = title.trim() || menu.title;
+                }
+            });
+        },
+
+        async reorderMenus(fromActionId, targetActionId) {
+            await updateConfig((config) => {
+                moveItem(config.menus, fromActionId, targetActionId);
             });
         },
 
@@ -192,6 +193,24 @@ export const usePreferenceStore = create<PreferenceState>((set, get) => {
             });
         },
 
+        async setDangerousActionConfirmation(actionId, enabled) {
+            await updateConfig((config) => {
+                const actionIds = new Set(config.dangerous_confirmation.action_ids);
+                if (enabled) {
+                    actionIds.add(actionId);
+                } else {
+                    actionIds.delete(actionId);
+                }
+                config.dangerous_confirmation.action_ids = Array.from(actionIds);
+            });
+        },
+
+        async setSettingsShortcut(shortcut) {
+            await updateConfig((config) => {
+                config.settings_shortcut = shortcut;
+            });
+        },
+
         async setTemplateEnabled(templateId, enabled) {
             await updateConfig((config) => {
                 const template = config.file_templates.find((item) => item.id === templateId);
@@ -201,14 +220,14 @@ export const usePreferenceStore = create<PreferenceState>((set, get) => {
 
                 template.enabled = enabled;
                 if (!enabled) {
-                    setMenuEnabledInConfig(config, `new_file.${templateId}`, false);
+                    setTemplateMenuEnabled(config, templateId, false);
                 }
             });
         },
 
         async setTemplateMainMenu(templateId, enabled) {
             await updateConfig((config) => {
-                setMenuEnabledInConfig(config, templateId.startsWith("new_file.") ? templateId : `new_file.${templateId}`, enabled);
+                setTemplateMenuEnabled(config, templateId, enabled);
             });
         },
 
@@ -220,6 +239,7 @@ export const usePreferenceStore = create<PreferenceState>((set, get) => {
                 }
 
                 template.title = title.trim() || template.file_name;
+                syncTemplateMenuTitle(config, template, false);
             });
         },
 
@@ -231,9 +251,7 @@ export const usePreferenceStore = create<PreferenceState>((set, get) => {
 
         async toggleFavoriteDir(directoryId, enabled) {
             await updateConfig((config) => {
-                for (const id of favoriteMenuIds(directoryId)) {
-                    setMenuEnabledInConfig(config, id, enabled);
-                }
+                setMenuEnabledInConfig(config, favoriteMenuId(directoryId), enabled);
             });
         },
 
@@ -258,17 +276,89 @@ export const usePreferenceStore = create<PreferenceState>((set, get) => {
             }
 
             await updateConfig((config) => {
-                const id = uniqueFavoriteDirectoryId(config, path);
+                const id = uniqueDirectoryId(config.favorite_dirs, path);
                 const title = directoryTitle(path);
-                config.favorite_dirs.push({ id, title, path, enabled: true });
-                addFavoriteMenus(config, id, title, true);
+                const directory = { id, title, path, enabled: true };
+                config.favorite_dirs.push(directory);
+                addFavoriteMenu(config, directory);
+            });
+        },
+
+        async addSendDirFromPicker() {
+            const currentConfig = get().config;
+            if (!currentConfig) {
+                return;
+            }
+
+            const path = await pickDirectory();
+            if (!path || currentConfig.send_dirs.some((directory) => directory.path === path)) {
+                return;
+            }
+
+            await updateConfig((config) => {
+                const id = uniqueDirectoryId(config.send_dirs, path);
+                const title = directoryTitle(path);
+                const directory = { id, title, path, enabled: true };
+                config.send_dirs.push(directory);
+                addSendMenus(config, directory);
+            });
+        },
+
+        async addTemplateFromPicker() {
+            const currentConfig = get().config;
+            if (!currentConfig) {
+                return;
+            }
+
+            const path = await pickTemplateFile();
+            if (!path) {
+                return;
+            }
+
+            const templateInfo = templateInfoFromPath(path);
+            await updateConfig((config) => {
+                const id = uniqueTemplateId(config);
+                const template = {
+                    id,
+                    title: templateInfo.title,
+                    file_name: templateInfo.fileName,
+                    enabled: true
+                };
+
+                config.file_templates.push(template);
+                syncTemplateMenuTitle(config, template, false);
+            });
+        },
+
+        async removeTemplate(templateId) {
+            await updateConfig((config) => {
+                config.file_templates = config.file_templates.filter((template) => template.id !== templateId);
+                config.menus = config.menus.filter((menu) => menu.id !== `new_file.${templateId}`);
+            });
+        },
+
+        async removeTemplates(templateIds) {
+            await updateConfig((config) => {
+                const ids = new Set(templateIds);
+                config.file_templates = config.file_templates.filter((template) => !ids.has(template.id));
+                config.menus = config.menus.filter((menu) => {
+                    const templateId = menu.id.startsWith("new_file.") ? menu.id.slice("new_file.".length) : menu.id;
+                    return !ids.has(templateId);
+                });
             });
         },
 
         async removeFavoriteDir(directoryId) {
             await updateConfig((config) => {
                 config.favorite_dirs = config.favorite_dirs.filter((directory) => directory.id !== directoryId);
-                const menuIds = new Set(favoriteMenuIds(directoryId));
+                config.menus = config.menus.filter((menu) => menu.id !== favoriteMenuId(directoryId));
+            });
+        },
+
+        async removeSendDir(directoryId) {
+            await updateConfig((config) => {
+                config.send_dirs = config.send_dirs.filter((directory) => directory.id !== directoryId);
+                const menuIds = new Set(sendMenuIds(directoryId));
                 config.menus = config.menus.filter((menu) => !menuIds.has(menu.id));
             });
         },
@@ -281,13 +371,45 @@ export const usePreferenceStore = create<PreferenceState>((set, get) => {
                 }
 
                 directory.title = title.trim() || directoryTitle(directory.path);
-                addFavoriteMenus(config, directory.id, directory.title, directory.enabled);
+                addFavoriteMenu(config, directory);
+            });
+        },
+
+        async renameSendDir(directoryId, title) {
+            await updateConfig((config) => {
+                const directory = config.send_dirs.find((item) => item.id === directoryId);
+                if (!directory) {
+                    return;
+                }
+
+                directory.title = title.trim() || directoryTitle(directory.path);
+                addSendMenus(config, directory);
             });
         },
 
         async reorderFavoriteDirs(fromDirectoryId, targetDirectoryId) {
             await updateConfig((config) => {
                 moveItem(config.favorite_dirs, fromDirectoryId, targetDirectoryId);
+            });
+        },
+
+        async reorderSendDirs(fromDirectoryId, targetDirectoryId) {
+            await updateConfig((config) => {
+                moveItem(config.send_dirs, fromDirectoryId, targetDirectoryId);
+            });
+        },
+
+        async resetFavoriteDirs() {
+            await updateConfig((config) => {
+                config.favorite_dirs = defaultDirectoryPresets();
+                resetFavoriteMenus(config);
+            });
+        },
+
+        async resetSendDirs() {
+            await updateConfig((config) => {
+                config.send_dirs = defaultDirectoryPresets();
+                resetSendMenus(config);
             });
         },
 
@@ -305,16 +427,8 @@ export const usePreferenceStore = create<PreferenceState>((set, get) => {
             await updateConfig((config) => {
                 for (const directory of config.favorite_dirs) {
                     directory.enabled = enabled;
-                    for (const menuId of favoriteMenuIds(directory.id)) {
-                        setMenuEnabledInConfig(config, menuId, enabled);
-                    }
+                    setMenuEnabledInConfig(config, favoriteMenuId(directory.id), enabled);
                 }
-            });
-        },
-
-        async setToolboxProvider(provider) {
-            await updateConfig((config) => {
-                config.toolbox.translation_provider = provider;
             });
         },
 

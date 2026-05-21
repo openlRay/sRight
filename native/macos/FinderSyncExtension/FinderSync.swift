@@ -7,30 +7,14 @@ struct SRightConfig: Decodable {
     let enabled: Bool
     let show_icons: Bool?
     let dangerous_confirmation: DangerousConfirmationConfig?
-    let file_templates: [FileTemplate]?
-    let favorite_dirs: [FavoriteDirectory]?
-    let menus: [MenuItem]
+    let menu_tree: [MenuTreeItem]?
 }
 
-struct MenuItem: Decodable {
-    let id: String
+struct MenuTreeItem: Decodable {
     let title: String
-    let enabled: Bool
-    let dangerous: Bool?
-}
-
-struct FileTemplate: Decodable {
-    let id: String
-    let title: String
-    let file_name: String
-    let enabled: Bool
-}
-
-struct FavoriteDirectory: Decodable {
-    let id: String
-    let title: String
-    let path: String
-    let enabled: Bool
+    let action_id: String?
+    let icon: String?
+    let children: [MenuTreeItem]?
 }
 
 struct PendingFinderAction: Encodable {
@@ -77,103 +61,68 @@ final class FinderSync: FIFinderSync {
             return menu
         }
 
-        let enabledMenus = config.menus.filter(\.enabled)
+        renderMenuTree(config.menu_tree ?? [], to: menu, config: config)
 
-        addNewFileSubmenu(to: menu, config: config, enabledMenus: enabledMenus)
-        addFavoriteDirsSubmenu(to: menu, config: config, enabledMenus: enabledMenus)
-
-        for menuItem in enabledMenus
-            where !menuItem.id.hasPrefix("new_file.") && !menuItem.id.hasPrefix("favorite.open.")
-        {
-            let item = NSMenuItem(title: "sRight：\(menuItem.title)", action: #selector(runConfiguredAction(_:)), keyEquivalent: "")
-            item.target = self
-            item.isEnabled = true
-            item.representedObject = menuItem.id
-            menu.addItem(item)
-        }
         guard !menu.items.isEmpty else {
-            NSLog("sRight FinderSync has no enabled menu items. menus=\(config.menus.map(\.id))")
+            NSLog("sRight FinderSync has no menu tree items.")
             return menu
         }
         NSLog("sRight FinderSync returning \(menu.items.count) menu item(s).")
-        trace("menu returned itemCount=\(menu.items.count) ids=\(enabledMenus.map(\.id).joined(separator: ","))")
+        trace("menu returned itemCount=\(menu.items.count)")
 
         return menu
     }
 
-    private func addNewFileSubmenu(to menu: NSMenu, config: SRightConfig, enabledMenus: [MenuItem]) {
-        let enabledMenuByID = Dictionary(uniqueKeysWithValues: enabledMenus.map { ($0.id, $0) })
-        let templates = (config.file_templates ?? [])
-            .filter(\.enabled)
-
-        guard !templates.isEmpty else {
-            return
-        }
-
-        let parent = NSMenuItem(title: "新建文件", action: nil, keyEquivalent: "")
-        if config.show_icons ?? true {
-            parent.image = menuIcon(forFileName: "Untitled.txt")
-        }
-
-        let submenu = NSMenu(title: "新建文件")
-        for template in templates {
-            let item = NSMenuItem(title: template.title, action: #selector(runConfiguredAction(_:)), keyEquivalent: "")
-            item.target = self
-            item.isEnabled = true
-            item.representedObject = "new_file.\(template.id)"
-            if config.show_icons ?? true {
-                item.image = menuIcon(forFileName: template.file_name)
-            }
-            submenu.addItem(item)
-        }
-
-        parent.submenu = submenu
-        menu.addItem(parent)
-
-        for template in templates where enabledMenuByID["new_file.\(template.id)"] != nil {
-            let item = NSMenuItem(title: "sRight：\(template.title)", action: #selector(runConfiguredAction(_:)), keyEquivalent: "")
-            item.target = self
-            item.isEnabled = true
-            item.representedObject = "new_file.\(template.id)"
-            if config.show_icons ?? true {
-                item.image = menuIcon(forFileName: template.file_name)
-            }
-            menu.addItem(item)
+    private func renderMenuTree(_ items: [MenuTreeItem], to menu: NSMenu, config: SRightConfig) {
+        for item in items {
+            renderMenuItem(item, to: menu, config: config)
         }
     }
 
-    private func addFavoriteDirsSubmenu(to menu: NSMenu, config: SRightConfig, enabledMenus: [MenuItem]) {
-        let enabledMenuIDs = Set(enabledMenus.map(\.id))
-        let directories = (config.favorite_dirs ?? [])
-            .filter { directory in
-                directory.enabled && enabledMenuIDs.contains("favorite.open.\(directory.id)")
+    private func renderMenuItem(_ treeItem: MenuTreeItem, to menu: NSMenu, config: SRightConfig) {
+        let children = treeItem.children ?? []
+        if !children.isEmpty {
+            let parent = NSMenuItem(title: treeItem.title, action: nil, keyEquivalent: "")
+            applyIcon(treeItem.icon, to: parent, config: config)
+            let submenu = NSMenu(title: treeItem.title)
+            renderMenuTree(children, to: submenu, config: config)
+            guard !submenu.items.isEmpty else {
+                return
             }
 
-        guard !directories.isEmpty else {
+            menu.addItem(parent)
+            menu.setSubmenu(submenu, for: parent)
             return
         }
 
-        let parent = NSMenuItem(title: "常用目录", action: nil, keyEquivalent: "")
-        if config.show_icons ?? true {
-            parent.image = NSWorkspace.shared.icon(forFile: NSHomeDirectory())
-            parent.image?.size = NSSize(width: 20, height: 20)
+        guard let actionID = treeItem.action_id else {
+            return
         }
 
-        let submenu = NSMenu(title: "常用目录")
-        for directory in directories {
-            let item = NSMenuItem(title: directory.title, action: #selector(runConfiguredAction(_:)), keyEquivalent: "")
-            item.target = self
-            item.isEnabled = true
-            item.representedObject = "favorite.open.\(directory.id)"
-            if config.show_icons ?? true {
-                item.image = NSWorkspace.shared.icon(forFile: expandedPath(directory.path))
-                item.image?.size = NSSize(width: 20, height: 20)
-            }
-            submenu.addItem(item)
+        let item = NSMenuItem(title: treeItem.title, action: #selector(runConfiguredAction(_:)), keyEquivalent: "")
+        item.target = self
+        item.isEnabled = true
+        item.representedObject = actionID
+        applyIcon(treeItem.icon, to: item, config: config)
+        menu.addItem(item)
+    }
+
+    private func applyIcon(_ icon: String?, to item: NSMenuItem, config: SRightConfig) {
+        guard config.show_icons ?? true, let icon else {
+            return
         }
 
-        parent.submenu = submenu
-        menu.addItem(parent)
+        if icon == "home" {
+            item.image = NSWorkspace.shared.icon(forFile: NSHomeDirectory())
+        } else if let fileName = icon.stripPrefix("file:") {
+            item.image = menuIcon(forFileName: fileName)
+        } else if let path = icon.stripPrefix("path:") {
+            item.image = NSWorkspace.shared.icon(forFile: expandedPath(path))
+        } else if let symbolName = icon.stripPrefix("system:") {
+            item.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
+        }
+
+        item.image?.size = NSSize(width: 20, height: 20)
     }
 
     private func menuIcon(forFileName fileName: String) -> NSImage {
@@ -201,7 +150,11 @@ final class FinderSync: FIFinderSync {
         let config = loadConfig()
         let requiresConfirmation = config?.dangerous_confirmation?.requiresConfirmation(for: actionID) ?? false
         if requiresConfirmation {
-            trace("dangerous action queued without FinderSync modal actionID=\(actionID)")
+            guard confirmDangerousAction(title: item.title, selectedCount: selectedPaths.count) else {
+                trace("dangerous action cancelled actionID=\(actionID)")
+                return
+            }
+            trace("dangerous action confirmed actionID=\(actionID)")
         }
 
         enqueueAction(actionID: actionID, selectedPaths: selectedPaths, confirmedDangerous: requiresConfirmation)
@@ -269,8 +222,7 @@ final class FinderSync: FIFinderSync {
             return actionID
         }
 
-        let title = item.title.replacingOccurrences(of: "sRight：", with: "")
-        return loadConfig()?.menus.first(where: { $0.title == title })?.id
+        return nil
     }
 
     private func expandedPath(_ path: String) -> String {
@@ -310,8 +262,8 @@ final class FinderSync: FIFinderSync {
 
         do {
             let config = try JSONDecoder().decode(SRightConfig.self, from: data)
-            NSLog("sRight FinderSync loaded config. enabled=\(config.enabled), menuCount=\(config.menus.count)")
-            trace("config loaded enabled=\(config.enabled) menuCount=\(config.menus.count)")
+            NSLog("sRight FinderSync loaded config. enabled=\(config.enabled), menuTreeCount=\(config.menu_tree?.count ?? 0)")
+            trace("config loaded enabled=\(config.enabled) menuTreeCount=\(config.menu_tree?.count ?? 0)")
             return config
         } catch {
             NSLog("sRight FinderSync failed to decode config at \(url.path): \(error.localizedDescription)")
@@ -397,5 +349,15 @@ final class FinderSync: FIFinderSync {
         }
 
         return URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+    }
+}
+
+private extension String {
+    func stripPrefix(_ prefix: String) -> String? {
+        guard hasPrefix(prefix) else {
+            return nil
+        }
+
+        return String(dropFirst(prefix.count))
     }
 }

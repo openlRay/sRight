@@ -30,54 +30,9 @@ fn load_config() -> Result<SRightConfig, String> {
 }
 
 #[tauri::command]
-fn save_config_command(config: SRightConfig) -> Result<(), String> {
-    save_config(&config).map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-fn run_debug_action() -> Result<String, String> {
-    let config = load_or_init_config().map_err(|error| error.to_string())?;
-    if !config.enabled {
-        let message = "sRight is disabled in config";
-        append_action_log(&ActionLogEntry::failure("debug.echo", 1, message, message))
-            .map_err(|error| error.to_string())?;
-        return Err(message.to_string());
-    }
-
-    let enabled = config
-        .menus
-        .iter()
-        .any(|menu| menu.id == "debug.echo" && menu.enabled);
-    if !enabled {
-        let message = "debug.echo is disabled in config";
-        append_action_log(&ActionLogEntry::failure(
-            "debug.echo",
-            1,
-            "Action blocked before execution",
-            message,
-        ))
-        .map_err(|error| error.to_string())?;
-        return Err(message.to_string());
-    }
-
-    let result = execute_configured_action(
-        ActionRequest {
-            action_id: "debug.echo".to_string(),
-            paths: vec![PathBuf::from("preferences-app")],
-            confirmed_dangerous: false,
-        },
-        &config,
-    )
-    .map_err(|error| error.to_string())?;
-
-    append_action_log(&ActionLogEntry::success(
-        &result.action_id,
-        result.selected_count,
-        &result.message,
-    ))
-    .map_err(|error| error.to_string())?;
-
-    Ok(result.message)
+fn save_config_command(app: tauri::AppHandle, config: SRightConfig) -> Result<(), String> {
+    save_config(&config).map_err(|error| error.to_string())?;
+    sync_tray_visibility(&app, config.show_menu_bar_icon)
 }
 
 #[tauri::command]
@@ -95,11 +50,22 @@ fn diagnostics() -> Diagnostics {
 
 #[tauri::command]
 fn open_finder_extension_settings() -> Result<(), String> {
-    let candidates = [
+    open_system_settings(&[
         "x-apple.systempreferences:com.apple.ExtensionsPreferences?Finder",
         "x-apple.systempreferences:com.apple.ExtensionsPreferences",
-    ];
+    ])
+}
 
+#[tauri::command]
+fn open_full_disk_access_settings() -> Result<(), String> {
+    open_system_settings(&[
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
+        "x-apple.systempreferences:com.apple.Security-Privacy?Privacy_AllFiles",
+        "x-apple.systempreferences:com.apple.preference.security",
+    ])
+}
+
+fn open_system_settings(candidates: &[&str]) -> Result<(), String> {
     for target in candidates {
         if Command::new("open")
             .arg(target)
@@ -120,6 +86,16 @@ fn open_finder_extension_settings() -> Result<(), String> {
 }
 
 #[tauri::command]
+fn close_window(window: tauri::Window) -> Result<(), String> {
+    window.close().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn minimize_window(window: tauri::Window) -> Result<(), String> {
+    window.minimize().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn pick_directory() -> Result<Option<String>, String> {
     let output = Command::new("/usr/bin/osascript")
         .arg("-e")
@@ -130,6 +106,27 @@ fn pick_directory() -> Result<Option<String>, String> {
     if output.status.success() {
         let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
         return Ok(Some(normalize_chosen_directory(&path)));
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if stderr.contains("-128") || stderr.contains("User canceled") {
+        return Ok(None);
+    }
+
+    Err(stderr.trim().to_string())
+}
+
+#[tauri::command]
+fn pick_template_file() -> Result<Option<String>, String> {
+    let output = Command::new("/usr/bin/osascript")
+        .arg("-e")
+        .arg(r#"POSIX path of (choose file with prompt "选择新建文件模板")"#)
+        .output()
+        .map_err(|error| error.to_string())?;
+
+    if output.status.success() {
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        return Ok(Some(path));
     }
 
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -162,11 +159,14 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_config,
             save_config_command,
-            run_debug_action,
             recent_logs,
             diagnostics,
             open_finder_extension_settings,
+            open_full_disk_access_settings,
+            close_window,
+            minimize_window,
             pick_directory,
+            pick_template_file,
             open_path_in_finder
         ])
         .run(tauri::generate_context!())
@@ -205,7 +205,7 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
     let icon = Image::from_bytes(include_bytes!("../icons/tray-icon.png"))?;
 
-    TrayIconBuilder::with_id("main")
+    let tray = TrayIconBuilder::with_id("main")
         .icon(icon)
         .tooltip("sRight")
         .menu(&menu)
@@ -216,7 +216,17 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             _ => {}
         })
         .build(app)?;
+    let config = load_or_init_config()?;
+    tray.set_visible(config.show_menu_bar_icon)?;
 
+    Ok(())
+}
+
+fn sync_tray_visibility(app: &tauri::AppHandle, visible: bool) -> Result<(), String> {
+    if let Some(tray) = app.tray_by_id("main") {
+        tray.set_visible(visible)
+            .map_err(|error| error.to_string())?;
+    }
     Ok(())
 }
 
@@ -447,47 +457,30 @@ mod tests {
     }
 
     #[test]
-    fn pending_finder_action_runs_dangerous_file_operations() {
+    fn pending_finder_action_runs_dangerous_file_operation() {
         let _guard = ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
         let support_dir = temp_dir("support-dangerous");
         let pending_dir = temp_dir("pending-dangerous");
         let selected_dir = temp_dir("selected-dangerous");
-        let trash_dir = temp_dir("trash-dangerous");
         std::fs::create_dir_all(&pending_dir).unwrap();
         std::fs::create_dir_all(&selected_dir).unwrap();
         let delete_target = selected_dir.join("delete-me.txt");
-        let trash_target = selected_dir.join("trash-me.txt");
         std::fs::write(&delete_target, "delete").unwrap();
-        std::fs::write(&trash_target, "trash").unwrap();
         std::env::set_var("SRIGHT_APP_SUPPORT_DIR", &support_dir);
         std::env::set_var("SRIGHT_PENDING_ACTIONS_DIR", &pending_dir);
         std::env::set_var("SRIGHT_SKIP_FINDER_SYNC_SYNC", "1");
-        std::env::set_var("SRIGHT_TRASH_DIR", &trash_dir);
 
-        for (request_id, action_id, path) in [
-            ("delete-request", "file.delete_permanently", &delete_target),
-            ("trash-request", "file.move_to_trash", &trash_target),
-        ] {
-            let request = serde_json::json!({
-                "request_id": request_id,
-                "action_id": action_id,
-                "paths": [path.display().to_string()],
-                "confirmed_dangerous": true
-            });
-            std::fs::write(
-                pending_dir.join(format!("{request_id}.json")),
-                request.to_string(),
-            )
-            .unwrap();
-        }
+        let request = serde_json::json!({
+            "request_id": "delete-request",
+            "action_id": "file.delete_permanently",
+            "paths": [delete_target.display().to_string()],
+            "confirmed_dangerous": true
+        });
+        std::fs::write(pending_dir.join("delete-request.json"), request.to_string()).unwrap();
 
         process_pending_actions_once().unwrap();
 
         assert!(!delete_target.exists());
-        assert!(!trash_target.exists());
-        assert!(trash_dir.join("trash-me.txt").exists());
         assert!(pending_dir.join("delete-request.done").exists());
-        assert!(pending_dir.join("trash-request.done").exists());
-        std::env::remove_var("SRIGHT_TRASH_DIR");
     }
 }

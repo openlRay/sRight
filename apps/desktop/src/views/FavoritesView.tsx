@@ -1,6 +1,7 @@
-import { Button, Checkbox, Input } from '@heroui/react';
-import { Folder, Minus, Plus } from 'lucide-react';
+import { Button, Input, Table, Tooltip } from '@heroui/react';
+import { FolderOpen, FolderPlus, Trash2 } from 'lucide-react';
 import { useState, type DragEvent, type FocusEvent, type KeyboardEvent } from 'react';
+import { VisibleCheckbox, VisibleSwitch } from '../components/VisibleControls';
 import { usePreferenceStore } from '../stores/preferences';
 
 export default function FavoritesView() {
@@ -8,8 +9,8 @@ export default function FavoritesView() {
     const config = usePreferenceStore(state => state.config);
     const addFavoriteDirFromPicker = usePreferenceStore(state => state.addFavoriteDirFromPicker);
     const openFavoriteDir = usePreferenceStore(state => state.openFavoriteDir);
-    const refresh = usePreferenceStore(state => state.refresh);
     const removeFavoriteDir = usePreferenceStore(state => state.removeFavoriteDir);
+    const resetFavoriteDirs = usePreferenceStore(state => state.resetFavoriteDirs);
     const renameFavoriteDir = usePreferenceStore(state => state.renameFavoriteDir);
     const reorderFavoriteDirs = usePreferenceStore(state => state.reorderFavoriteDirs);
     const setTopLevelFlag = usePreferenceStore(state => state.setTopLevelFlag);
@@ -52,15 +53,7 @@ export default function FavoritesView() {
     }
 
     function openDirectory(directoryId: string) {
-        setSelectedDirectoryId(directoryId);
         void openFavoriteDir(directoryId);
-    }
-
-    function openDirectoryOnKeyboard(directoryId: string, event: KeyboardEvent<HTMLDivElement>) {
-        if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            openDirectory(directoryId);
-        }
     }
 
     function removeSelectedDirectory() {
@@ -75,94 +68,121 @@ export default function FavoritesView() {
 
     return (
         <section className="settings-page favorites-page">
-            <div className="send-to-table" role="table" aria-label="常用目录">
-                <div className="send-to-row send-to-head" role="row">
-                    <span role="columnheader">图标</span>
-                    <span role="columnheader">真实路径</span>
-                    <span role="columnheader">显示名称（双击编辑 / 按住拖拽）</span>
-                </div>
-
-                {config.favorite_dirs.map(directory => (
-                    <div
-                        key={directory.id}
-                        className={`send-to-row send-to-data-row${selectedDirectoryId === directory.id ? ' selected' : ''}${
-                            draggingDirectoryId === directory.id ? ' dragging' : ''
-                        }`}
-                        aria-selected={selectedDirectoryId === directory.id}
-                        draggable
-                        role="row"
-                        tabIndex={0}
-                        onClick={() => openDirectory(directory.id)}
-                        onDragEnd={() => setDraggingDirectoryId(null)}
-                        onDragOver={event => event.preventDefault()}
-                        onDragStart={event => beginDirectoryDrag(directory.id, event)}
-                        onDrop={() => dropDirectory(directory.id)}
-                        onKeyDown={event => openDirectoryOnKeyboard(directory.id, event)}
-                    >
-                        <span role="cell">
-                            <Folder size={30} />
-                        </span>
-                        <span className="path-cell" role="cell">
-                            {directory.path}
-                        </span>
-                        <span className="directory-name-cell" role="cell">
-                            {editingDirectoryId === directory.id ? (
-                                <Input
-                                    autoFocus
-                                    className="directory-name-input"
-                                    defaultValue={directory.title}
-                                    onBlur={event => finishDirectoryNameEdit(directory.id, event)}
-                                    onClick={event => event.stopPropagation()}
-                                    onKeyDown={commitDirectoryNameOnEnter}
-                                />
-                            ) : (
-                                <span
-                                    className="directory-name-button"
-                                    onDoubleClick={event => {
-                                        event.stopPropagation();
-                                        setEditingDirectoryId(directory.id);
-                                    }}
+            <Table className="settings-table" aria-label="常用目录">
+                <Table.ScrollContainer className="settings-table-scroll">
+                    <Table.Content>
+                        <Table.Header>
+                            <Table.Column>选择</Table.Column>
+                            <Table.Column>图标</Table.Column>
+                            <Table.Column>真实路径</Table.Column>
+                            <Table.Column isRowHeader>显示名称（双击编辑 / 按住拖拽）</Table.Column>
+                        </Table.Header>
+                        <Table.Body>
+                            {config.favorite_dirs.map(directory => (
+                                <Table.Row
+                                    key={directory.id}
+                                    aria-selected={selectedDirectoryId === directory.id}
+                                    onClick={() => openDirectory(directory.id)}
                                 >
-                                    {directory.title}
-                                </span>
-                            )}
-                        </span>
-                    </div>
-                ))}
-            </div>
+                                    <Table.Cell>
+                                        <span onClick={event => event.stopPropagation()}>
+                                            <VisibleCheckbox
+                                                aria-label={`选择 ${directory.title}`}
+                                                isSelected={selectedDirectoryId === directory.id}
+                                                onChange={selected =>
+                                                    setSelectedDirectoryId(selected ? directory.id : null)
+                                                }
+                                            />
+                                        </span>
+                                    </Table.Cell>
+                                    <Table.Cell>
+                                        <span className="directory-icon favorite">
+                                            <FolderOpen size={22} />
+                                        </span>
+                                    </Table.Cell>
+                                    <Table.Cell>
+                                        <Tooltip delay={0}>
+                                            <Tooltip.Trigger className="path-cell">
+                                                <span>{directory.path}</span>
+                                            </Tooltip.Trigger>
+                                            <Tooltip.Content showArrow>
+                                                <Tooltip.Arrow />
+                                                {directory.path}
+                                            </Tooltip.Content>
+                                        </Tooltip>
+                                    </Table.Cell>
+                                    <Table.Cell>
+                                        <div
+                                            className="directory-drag-handle"
+                                            draggable
+                                            onDragEnd={() => setDraggingDirectoryId(null)}
+                                            onDragOver={event => event.preventDefault()}
+                                            onDragStart={event => beginDirectoryDrag(directory.id, event)}
+                                            onDrop={() => dropDirectory(directory.id)}
+                                        >
+                                            {editingDirectoryId === directory.id ? (
+                                                <Input
+                                                    autoFocus
+                                                    className="directory-name-input"
+                                                    defaultValue={directory.title}
+                                                    onBlur={event => finishDirectoryNameEdit(directory.id, event)}
+                                                    onClick={event => event.stopPropagation()}
+                                                    onKeyDown={commitDirectoryNameOnEnter}
+                                                />
+                                            ) : (
+                                                <Tooltip delay={0}>
+                                                    <Tooltip.Trigger
+                                                        className="directory-name-button"
+                                                        onDoubleClick={event => {
+                                                            event.stopPropagation();
+                                                            setEditingDirectoryId(directory.id);
+                                                        }}
+                                                    >
+                                                        <span>{directory.title}</span>
+                                                    </Tooltip.Trigger>
+                                                    <Tooltip.Content showArrow>
+                                                        <Tooltip.Arrow />
+                                                        {directory.title}
+                                                    </Tooltip.Content>
+                                                </Tooltip>
+                                            )}
+                                        </div>
+                                    </Table.Cell>
+                                </Table.Row>
+                            ))}
+                        </Table.Body>
+                    </Table.Content>
+                </Table.ScrollContainer>
+            </Table>
 
-            <div className="send-to-actions">
-                <Button
-                    isIconOnly
-                    aria-label="增加目录"
-                    isDisabled={busy}
-                    onPress={() => void addFavoriteDirFromPicker()}
-                >
-                    <Plus size={18} />
+            <div className="template-actions">
+                <Button aria-label="增加目录" isDisabled={busy} onPress={() => void addFavoriteDirFromPicker()}>
+                    <FolderPlus size={18} />
+                    增加目录
                 </Button>
                 <Button
-                    isIconOnly
                     aria-label="删除目录"
                     isDisabled={busy || !selectedDirectoryId}
                     onPress={removeSelectedDirectory}
                 >
-                    <Minus size={18} />
+                    <Trash2 size={18} />
+                    删除目录
                 </Button>
-                <Button isDisabled={busy} onPress={() => void refresh()}>
+                <Button isDisabled={busy} onPress={() => void resetFavoriteDirs()}>
                     重置
                 </Button>
             </div>
 
-            <div className="send-to-options">
-                <Checkbox
+            <div className="template-options">
+                <VisibleSwitch
                     isSelected={config.show_icons}
                     onChange={enabled => void setTopLevelFlag('show_icons', enabled)}
                 >
                     显示图标
-                </Checkbox>
-                <Checkbox isSelected={favoritesEnabled} onChange={enabled => void toggleAllFavorites(enabled)}>
+                </VisibleSwitch>
+                <VisibleSwitch isSelected={favoritesEnabled} onChange={enabled => void toggleAllFavorites(enabled)}>
                     启用常用目录
-                </Checkbox>
+                </VisibleSwitch>
             </div>
         </section>
     );

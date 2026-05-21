@@ -1,16 +1,17 @@
-import { Button, Checkbox, Input } from '@heroui/react';
-import { Folder, Minus, Plus } from 'lucide-react';
+import { Button, Input, Table, Tooltip } from '@heroui/react';
+import { FolderInput, FolderPlus, Trash2 } from 'lucide-react';
 import { useState, type DragEvent, type FocusEvent, type KeyboardEvent } from 'react';
+import { VisibleCheckbox, VisibleSwitch } from '../components/VisibleControls';
 import { usePreferenceStore } from '../stores/preferences';
 
 export default function SendToView() {
     const busy = usePreferenceStore(state => state.busy);
     const config = usePreferenceStore(state => state.config);
-    const addFavoriteDirFromPicker = usePreferenceStore(state => state.addFavoriteDirFromPicker);
-    const refresh = usePreferenceStore(state => state.refresh);
-    const removeFavoriteDir = usePreferenceStore(state => state.removeFavoriteDir);
-    const renameFavoriteDir = usePreferenceStore(state => state.renameFavoriteDir);
-    const reorderFavoriteDirs = usePreferenceStore(state => state.reorderFavoriteDirs);
+    const addSendDirFromPicker = usePreferenceStore(state => state.addSendDirFromPicker);
+    const removeSendDir = usePreferenceStore(state => state.removeSendDir);
+    const renameSendDir = usePreferenceStore(state => state.renameSendDir);
+    const reorderSendDirs = usePreferenceStore(state => state.reorderSendDirs);
+    const resetSendDirs = usePreferenceStore(state => state.resetSendDirs);
     const setTopLevelFlag = usePreferenceStore(state => state.setTopLevelFlag);
     const toggleSendMenus = usePreferenceStore(state => state.toggleSendMenus);
     const [selectedDirectoryId, setSelectedDirectoryId] = useState<string | null>(null);
@@ -28,7 +29,7 @@ export default function SendToView() {
 
     function finishDirectoryNameEdit(directoryId: string, event: FocusEvent<HTMLInputElement>) {
         setEditingDirectoryId(null);
-        void renameFavoriteDir(directoryId, event.currentTarget.value);
+        void renameSendDir(directoryId, event.currentTarget.value);
     }
 
     function commitDirectoryNameOnEnter(event: KeyboardEvent<HTMLInputElement>) {
@@ -48,7 +49,7 @@ export default function SendToView() {
             return;
         }
 
-        void reorderFavoriteDirs(draggingDirectoryId, targetDirectoryId);
+        void reorderSendDirs(draggingDirectoryId, targetDirectoryId);
         setDraggingDirectoryId(null);
     }
 
@@ -59,100 +60,129 @@ export default function SendToView() {
 
         const removedId = selectedDirectoryId;
         setSelectedDirectoryId(null);
-        void removeFavoriteDir(removedId);
+        void removeSendDir(removedId);
     }
 
     return (
         <section className="settings-page send-to-page">
-            <div className="send-to-table" role="table" aria-label="发送文件到目录">
-                <div className="send-to-row send-to-head" role="row">
-                    <span role="columnheader">图标</span>
-                    <span role="columnheader">真实路径</span>
-                    <span role="columnheader">显示名称（双击编辑 / 按住拖拽）</span>
-                </div>
+            <Table className="settings-table" aria-label="发送文件到目录">
+                <Table.ScrollContainer className="settings-table-scroll">
+                    <Table.Content>
+                        <Table.Header>
+                            <Table.Column>选择</Table.Column>
+                            <Table.Column>图标</Table.Column>
+                            <Table.Column>真实路径</Table.Column>
+                            <Table.Column isRowHeader>显示名称（双击编辑 / 按住拖拽）</Table.Column>
+                        </Table.Header>
+                        <Table.Body>
+                            {config.send_dirs.map(directory => (
+                                <Table.Row key={directory.id}>
+                                    <Table.Cell>
+                                        <VisibleCheckbox
+                                            aria-label={`选择 ${directory.title}`}
+                                            isSelected={selectedDirectoryId === directory.id}
+                                            onChange={selected =>
+                                                setSelectedDirectoryId(selected ? directory.id : null)
+                                            }
+                                        />
+                                    </Table.Cell>
+                                    <Table.Cell>
+                                        <span className="directory-icon send">
+                                            <FolderInput size={22} />
+                                        </span>
+                                    </Table.Cell>
+                                    <Table.Cell>
+                                        <Tooltip delay={0}>
+                                            <Tooltip.Trigger className="path-cell">
+                                                <span>{directory.path}</span>
+                                            </Tooltip.Trigger>
+                                            <Tooltip.Content showArrow>
+                                                <Tooltip.Arrow />
+                                                {directory.path}
+                                            </Tooltip.Content>
+                                        </Tooltip>
+                                    </Table.Cell>
+                                    <Table.Cell>
+                                        <div
+                                            className="directory-drag-handle"
+                                            draggable
+                                            onDragEnd={() => setDraggingDirectoryId(null)}
+                                            onDragOver={event => event.preventDefault()}
+                                            onDragStart={event => beginDirectoryDrag(directory.id, event)}
+                                            onDrop={() => dropDirectory(directory.id)}
+                                        >
+                                            {editingDirectoryId === directory.id ? (
+                                                <Input
+                                                    autoFocus
+                                                    className="directory-name-input"
+                                                    defaultValue={directory.title}
+                                                    onBlur={event => finishDirectoryNameEdit(directory.id, event)}
+                                                    onClick={event => event.stopPropagation()}
+                                                    onKeyDown={commitDirectoryNameOnEnter}
+                                                />
+                                            ) : (
+                                                <Tooltip delay={0}>
+                                                    <Tooltip.Trigger
+                                                        className="directory-name-button"
+                                                        onDoubleClick={event => {
+                                                            event.stopPropagation();
+                                                            setEditingDirectoryId(directory.id);
+                                                        }}
+                                                    >
+                                                        <span>{directory.title}</span>
+                                                    </Tooltip.Trigger>
+                                                    <Tooltip.Content showArrow>
+                                                        <Tooltip.Arrow />
+                                                        {directory.title}
+                                                    </Tooltip.Content>
+                                                </Tooltip>
+                                            )}
+                                        </div>
+                                    </Table.Cell>
+                                </Table.Row>
+                            ))}
+                        </Table.Body>
+                    </Table.Content>
+                </Table.ScrollContainer>
+            </Table>
 
-                {config.favorite_dirs.map(directory => (
-                    <div
-                        key={directory.id}
-                        className={`send-to-row send-to-data-row${selectedDirectoryId === directory.id ? ' selected' : ''}${
-                            draggingDirectoryId === directory.id ? ' dragging' : ''
-                        }`}
-                        draggable
-                        role="row"
-                        tabIndex={0}
-                        onClick={() => setSelectedDirectoryId(directory.id)}
-                        onDragEnd={() => setDraggingDirectoryId(null)}
-                        onDragOver={event => event.preventDefault()}
-                        onDragStart={event => beginDirectoryDrag(directory.id, event)}
-                        onDrop={() => dropDirectory(directory.id)}
-                    >
-                        <span role="cell">
-                            <Folder size={30} />
-                        </span>
-                        <span className="path-cell" role="cell">
-                            {directory.path}
-                        </span>
-                        <span className="directory-name-cell" role="cell">
-                            {editingDirectoryId === directory.id ? (
-                                <Input
-                                    autoFocus
-                                    className="directory-name-input"
-                                    defaultValue={directory.title}
-                                    onBlur={event => finishDirectoryNameEdit(directory.id, event)}
-                                    onClick={event => event.stopPropagation()}
-                                    onKeyDown={commitDirectoryNameOnEnter}
-                                />
-                            ) : (
-                                <span
-                                    className="directory-name-button"
-                                    onDoubleClick={event => {
-                                        event.stopPropagation();
-                                        setEditingDirectoryId(directory.id);
-                                    }}
-                                >
-                                    {directory.title}
-                                </span>
-                            )}
-                        </span>
-                    </div>
-                ))}
-            </div>
-
-            <div className="send-to-actions">
-                <Button
-                    isIconOnly
-                    aria-label="增加目录"
-                    isDisabled={busy}
-                    onPress={() => void addFavoriteDirFromPicker()}
-                >
-                    <Plus size={18} />
+            <div className="template-actions">
+                <Button aria-label="增加目录" isDisabled={busy} onPress={() => void addSendDirFromPicker()}>
+                    <FolderPlus size={18} />
+                    增加目录
                 </Button>
                 <Button
-                    isIconOnly
                     aria-label="删除目录"
                     isDisabled={busy || !selectedDirectoryId}
                     onPress={removeSelectedDirectory}
                 >
-                    <Minus size={18} />
+                    <Trash2 size={18} />
+                    删除目录
                 </Button>
-                <Button isDisabled={busy} onPress={() => void refresh()}>
+                <Button isDisabled={busy} onPress={() => void resetSendDirs()}>
                     重置
                 </Button>
             </div>
 
-            <div className="send-to-options">
-                <Checkbox
+            <div className="template-options">
+                <VisibleSwitch
                     isSelected={config.show_icons}
                     onChange={enabled => void setTopLevelFlag('show_icons', enabled)}
                 >
                     显示图标
-                </Checkbox>
-                <Checkbox isSelected={moveEnabled} onChange={enabled => void toggleSendMenus('send.move_to.', enabled)}>
+                </VisibleSwitch>
+                <VisibleSwitch
+                    isSelected={moveEnabled}
+                    onChange={enabled => void toggleSendMenus('send.move_to.', enabled)}
+                >
                     启用移动文件到...
-                </Checkbox>
-                <Checkbox isSelected={copyEnabled} onChange={enabled => void toggleSendMenus('send.copy_to.', enabled)}>
+                </VisibleSwitch>
+                <VisibleSwitch
+                    isSelected={copyEnabled}
+                    onChange={enabled => void toggleSendMenus('send.copy_to.', enabled)}
+                >
                     启用复制文件到...
-                </Checkbox>
+                </VisibleSwitch>
             </div>
         </section>
     );

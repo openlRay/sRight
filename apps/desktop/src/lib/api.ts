@@ -9,6 +9,13 @@ export interface MenuItem {
     extensions: string[];
 }
 
+export interface MenuTreeItem {
+    title: string;
+    action_id?: string | null;
+    icon?: string | null;
+    children: MenuTreeItem[];
+}
+
 export interface DangerousConfirmationConfig {
     enabled: boolean;
     action_ids: string[];
@@ -60,16 +67,20 @@ export interface CustomScript {
 export interface SRightConfig {
     enabled: boolean;
     show_icons: boolean;
+    show_menu_bar_icon: boolean;
+    settings_shortcut: string;
     merge_groups: boolean;
     dangerous_confirmation: DangerousConfirmationConfig;
     file_templates: FileTemplate[];
     open_apps: OpenApp[];
     favorite_dirs: FavoriteDirectory[];
+    send_dirs: FavoriteDirectory[];
     archive: ArchiveConfig;
     image: ImageConfig;
     toolbox: ToolboxConfig;
     custom_scripts: CustomScript[];
     menus: MenuItem[];
+    menu_tree: MenuTreeItem[];
 }
 
 export interface ActionLogEntry {
@@ -94,10 +105,6 @@ export function saveConfig(config: SRightConfig): Promise<void> {
     return invoke("save_config_command", { config });
 }
 
-export function runDebugAction(): Promise<string> {
-    return invoke("run_debug_action");
-}
-
 export function recentLogs(limit: number): Promise<ActionLogEntry[]> {
     return invoke("recent_logs", { limit });
 }
@@ -110,8 +117,24 @@ export function openFinderExtensionSettings(): Promise<void> {
     return invoke("open_finder_extension_settings");
 }
 
+export function openFullDiskAccessSettings(): Promise<void> {
+    return invoke("open_full_disk_access_settings");
+}
+
+export function closeWindow(): Promise<void> {
+    return invoke("close_window");
+}
+
+export function minimizeWindow(): Promise<void> {
+    return invoke("minimize_window");
+}
+
 export function pickDirectory(): Promise<string | null> {
     return invoke("pick_directory");
+}
+
+export function pickTemplateFile(): Promise<string | null> {
+    return invoke("pick_template_file");
 }
 
 export function openPathInFinder(path: string): Promise<void> {

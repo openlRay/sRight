@@ -1,16 +1,24 @@
 .settings-page {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
     width: min(1040px, 100%);
     margin: 0 auto;
 }
 
-.page-header {
+.settings-table {
+    flex: 1 1 auto;
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: @space-lg;
-    min-height: 72px;
-    margin-bottom: @space-2xl;
-    border-bottom: 1px solid @color-hairline;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.settings-table-scroll {
+    flex: 1 1 auto;
+    height: 100%;
+    min-height: 0;
+    overflow: auto;
 }
 
 h1,

@@ -95,7 +95,7 @@
       "skill": "maestro-verify",
       "args": "frontend react migration --post-fix",
       "barrier": false,
-      "status": "running",
+      "status": "completed",
       "wave_n": 6
     },
     {
@@ -104,7 +104,7 @@
       "decision": "post-verify",
       "retry_count": 0,
       "max_retries": 2,
-      "status": "pending",
+      "status": "completed",
       "wave_n": null
     },
     {
@@ -113,11 +113,56 @@
       "skill": "quality-review",
       "args": "frontend react migration --post-fix",
       "barrier": false,
+      "status": "completed",
+      "wave_n": 7
+    },
+    {
+      "index": 13,
+      "type": "decision",
+      "decision": "post-review",
+      "retry_count": 1,
+      "max_retries": 2,
+      "status": "fixing",
+      "wave_n": null
+    },
+    {
+      "index": 14,
+      "type": "external",
+      "skill": "maestro-execute",
+      "args": "frontend react migration --fix tauri-capabilities-review-gaps --dir .workflow/.maestro/ralph-20260520-202420",
+      "barrier": true,
+      "status": "completed",
+      "wave_n": 8
+    },
+    {
+      "index": 15,
+      "type": "external",
+      "skill": "maestro-verify",
+      "args": "frontend react migration --post-capability-fix",
+      "barrier": false,
+      "status": "running",
+      "wave_n": 9
+    },
+    {
+      "index": 16,
+      "type": "decision",
+      "decision": "post-verify",
+      "retry_count": 0,
+      "max_retries": 2,
       "status": "pending",
       "wave_n": null
     },
     {
-      "index": 13,
+      "index": 17,
+      "type": "external",
+      "skill": "quality-review",
+      "args": "frontend react migration --post-capability-fix",
+      "barrier": false,
+      "status": "pending",
+      "wave_n": null
+    },
+    {
+      "index": 18,
       "type": "decision",
       "decision": "post-review",
       "retry_count": 0,
@@ -184,9 +229,27 @@
     {
       "wave_n": 6,
       "steps": [10],
-      "status": "running",
+      "status": "completed",
       "results": ".workflow/.maestro/ralph-20260520-202420/wave-6-results.csv"
+    },
+    {
+      "wave_n": 7,
+      "steps": [12],
+      "status": "completed",
+      "results": ".workflow/.maestro/ralph-20260520-202420/wave-7-results.csv"
+    },
+    {
+      "wave_n": 8,
+      "steps": [14],
+      "status": "completed",
+      "results": ".workflow/.maestro/ralph-20260520-202420/wave-8-results.csv"
+    },
+    {
+      "wave_n": 9,
+      "steps": [15],
+      "status": "running",
+      "results": ".workflow/.maestro/ralph-20260520-202420/wave-9-results.csv"
     }
   ],
-  "current_step": 10
+  "current_step": 15
 }

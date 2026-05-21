@@ -1,0 +1,112 @@
+.toolbox-page {
+    gap: @space-xl;
+}
+
+.page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: @space-lg;
+}
+
+.toolbox-content {
+    display: grid;
+    gap: @space-2xl;
+    min-height: 0;
+    overflow: auto;
+    padding-right: @space-sm;
+}
+
+.toolbox-section {
+    display: grid;
+    gap: @space-md;
+    min-height: 0;
+
+    h2 {
+        margin-bottom: 0;
+        font-size: 16px;
+        font-weight: 700;
+        line-height: 24px;
+    }
+}
+
+.toolbox-action-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    color: #ffffff;
+    box-shadow:
+        0 8px 18px rgba(0, 0, 0, 0.12),
+        inset 0 1px 0 rgba(255, 255, 255, 0.32);
+
+    &.tool {
+        background: linear-gradient(145deg, #3478f6 0%, #185abc 100%);
+    }
+
+    &.image {
+        background: linear-gradient(145deg, #12a8df 0%, #087da8 100%);
+    }
+
+    &.archive {
+        background: linear-gradient(145deg, #8b5cf6 0%, #5b35b1 100%);
+    }
+
+    &.danger {
+        background: linear-gradient(145deg, #ff6b6b 0%, #d93434 100%);
+    }
+}
+
+.toolbox-drag-handle {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-height: 36px;
+    cursor: grab;
+}
+
+.toolbox-name-button {
+    display: block;
+    width: 100%;
+    min-height: 36px;
+    overflow: hidden;
+    border: 0;
+    background: transparent;
+    color: @color-ink;
+    font-size: 15px;
+    line-height: 22px;
+    padding: 0;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.toolbox-name-input,
+.toolbox-command-input {
+    width: 100%;
+}
+
+.toolbox-option-select {
+    min-width: 150px;
+    height: 32px;
+    border: 1px solid @color-hairline;
+    border-radius: @radius-sm;
+    background: #ffffff;
+    color: @color-ink;
+    font-size: 13px;
+    padding: 0 @space-md;
+}
+
+.toolbox-option-empty {
+    color: @color-body-mid;
+    font-size: 13px;
+}
+
+@media (max-width: 820px) {
+    .page-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}

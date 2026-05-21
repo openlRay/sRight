@@ -1,4 +1,4 @@
-use std::fs;
+use std::{collections::HashSet, fs};
 
 use serde::{Deserialize, Serialize};
 
@@ -9,6 +9,10 @@ use crate::paths::{app_support_dir, config_path, finder_sync_app_support_dir};
 pub struct SRightConfig {
     pub enabled: bool,
     pub show_icons: bool,
+    #[serde(default = "default_show_menu_bar_icon")]
+    pub show_menu_bar_icon: bool,
+    #[serde(default)]
+    pub settings_shortcut: String,
     pub merge_groups: bool,
     #[serde(default)]
     pub dangerous_confirmation: DangerousConfirmationConfig,
@@ -18,6 +22,8 @@ pub struct SRightConfig {
     pub open_apps: Vec<OpenApp>,
     #[serde(default = "default_favorite_dirs")]
     pub favorite_dirs: Vec<FavoriteDirectory>,
+    #[serde(default = "default_send_dirs")]
+    pub send_dirs: Vec<FavoriteDirectory>,
     #[serde(default)]
     pub archive: ArchiveConfig,
     #[serde(default)]
@@ -27,6 +33,8 @@ pub struct SRightConfig {
     #[serde(default = "default_custom_scripts")]
     pub custom_scripts: Vec<CustomScript>,
     pub menus: Vec<MenuItem>,
+    #[serde(default)]
+    pub menu_tree: Vec<MenuTreeItem>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,6 +48,17 @@ pub struct MenuItem {
     pub file_kinds: Vec<String>,
     #[serde(default)]
     pub extensions: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MenuTreeItem {
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<MenuTreeItem>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -162,20 +181,29 @@ pub enum ConfigError {
 pub type ConfigResult<T> = Result<T, ConfigError>;
 
 pub fn default_config() -> SRightConfig {
-    SRightConfig {
+    let config = SRightConfig {
         enabled: true,
         show_icons: true,
+        show_menu_bar_icon: default_show_menu_bar_icon(),
+        settings_shortcut: String::new(),
         merge_groups: false,
         dangerous_confirmation: DangerousConfirmationConfig::default(),
         file_templates: default_file_templates(),
         open_apps: default_open_apps(),
         favorite_dirs: default_favorite_dirs(),
+        send_dirs: default_send_dirs(),
         archive: ArchiveConfig::default(),
         image: ImageConfig::default(),
         toolbox: ToolboxConfig::default(),
         custom_scripts: default_custom_scripts(),
         menus: default_menus(),
-    }
+        menu_tree: Vec::new(),
+    };
+    with_menu_tree(config)
+}
+
+fn default_show_menu_bar_icon() -> bool {
+    true
 }
 
 pub fn load_or_init_config() -> ConfigResult<SRightConfig> {
@@ -194,10 +222,11 @@ pub fn load_or_init_config() -> ConfigResult<SRightConfig> {
 }
 
 pub fn save_config(config: &SRightConfig) -> ConfigResult<()> {
+    let config = ensure_default_menus(config.clone());
     fs::create_dir_all(app_support_dir()).map_err(ConfigError::CreateDir)?;
-    let contents = serde_json::to_string_pretty(config).map_err(ConfigError::Serialize)?;
+    let contents = serde_json::to_string_pretty(&config).map_err(ConfigError::Serialize)?;
     fs::write(config_path(), format!("{contents}\n")).map_err(ConfigError::Write)?;
-    sync_finder_sync_config(config)
+    sync_finder_sync_config(&config)
 }
 
 fn sync_finder_sync_config(config: &SRightConfig) -> ConfigResult<()> {
@@ -236,6 +265,12 @@ fn default_menus() -> Vec<MenuItem> {
 }
 
 fn ensure_default_menus(mut config: SRightConfig) -> SRightConfig {
+    ensure_open_apps(&mut config.open_apps);
+    ensure_favorite_dirs(&mut config.favorite_dirs);
+    ensure_send_dirs(&mut config.send_dirs);
+    ensure_custom_scripts(&mut config.custom_scripts);
+    retain_known_menu_items(&mut config);
+
     for default_menu in default_menus() {
         if config.menus.iter().any(|menu| menu.id == default_menu.id) {
             continue;
@@ -252,13 +287,198 @@ fn ensure_default_menus(mut config: SRightConfig) -> SRightConfig {
         }
     }
 
-    ensure_file_templates(&mut config.file_templates);
-    ensure_open_apps(&mut config.open_apps);
-    ensure_favorite_dirs(&mut config.favorite_dirs);
     ensure_favorite_menus(&mut config.menus, &config.favorite_dirs);
-    ensure_custom_scripts(&mut config.custom_scripts);
+    ensure_send_menus(&mut config.menus, &config.send_dirs);
 
+    config.menu_tree = build_menu_tree(&config);
     config
+}
+
+fn with_menu_tree(mut config: SRightConfig) -> SRightConfig {
+    config.menu_tree = build_menu_tree(&config);
+    config
+}
+
+fn retain_known_menu_items(config: &mut SRightConfig) {
+    let menu_ids = known_menu_ids(&config.favorite_dirs, &config.send_dirs);
+    config.menus.retain(|menu| menu_ids.contains(&menu.id));
+
+    let dangerous_action_ids = action_descriptors()
+        .into_iter()
+        .filter(|descriptor| descriptor.dangerous)
+        .map(|descriptor| descriptor.id)
+        .collect::<HashSet<_>>();
+    config
+        .dangerous_confirmation
+        .action_ids
+        .retain(|action_id| dangerous_action_ids.contains(action_id));
+}
+
+fn build_menu_tree(config: &SRightConfig) -> Vec<MenuTreeItem> {
+    let mut tree = Vec::new();
+
+    if let Some(group) = new_file_menu_tree(config) {
+        tree.push(group);
+    }
+    if let Some(group) = send_to_menu_tree(config) {
+        tree.push(group);
+    }
+    if let Some(group) = favorite_dirs_menu_tree(config) {
+        tree.push(group);
+    }
+    if let Some(group) = toolbox_menu_tree(config) {
+        tree.push(group);
+    }
+
+    tree
+}
+
+fn new_file_menu_tree(config: &SRightConfig) -> Option<MenuTreeItem> {
+    let children = config
+        .file_templates
+        .iter()
+        .filter(|template| template.enabled)
+        .map(|template| {
+            leaf_menu_item(
+                &template.title,
+                &format!("new_file.{}", template.id),
+                Some(format!("file:{}", template.file_name)),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    group_menu_item("新建文件", Some("file:Untitled.txt".to_string()), children)
+}
+
+fn send_to_menu_tree(config: &SRightConfig) -> Option<MenuTreeItem> {
+    let move_children = send_dir_children(config, "send.move_to.");
+    let copy_children = send_dir_children(config, "send.copy_to.");
+    let mut children = Vec::new();
+
+    if let Some(group) = group_menu_item("移动文件到...", None, move_children) {
+        children.push(group);
+    }
+    if let Some(group) = group_menu_item("复制文件到...", None, copy_children) {
+        children.push(group);
+    }
+
+    group_menu_item("发送文件到", Some("home".to_string()), children)
+}
+
+fn send_dir_children(config: &SRightConfig, prefix: &str) -> Vec<MenuTreeItem> {
+    config
+        .send_dirs
+        .iter()
+        .filter(|directory| directory.enabled)
+        .filter_map(|directory| {
+            let action_id = format!("{prefix}{}", directory.id);
+            enabled_menu(config, &action_id).map(|_| {
+                leaf_menu_item(
+                    &directory.title,
+                    &action_id,
+                    Some(format!("path:{}", directory.path)),
+                )
+            })
+        })
+        .collect()
+}
+
+fn favorite_dirs_menu_tree(config: &SRightConfig) -> Option<MenuTreeItem> {
+    let children = config
+        .favorite_dirs
+        .iter()
+        .filter(|directory| directory.enabled)
+        .filter_map(|directory| {
+            let action_id = format!("favorite.open.{}", directory.id);
+            enabled_menu(config, &action_id).map(|_| {
+                leaf_menu_item(
+                    &directory.title,
+                    &action_id,
+                    Some(format!("path:{}", directory.path)),
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+
+    group_menu_item("常用目录", Some("home".to_string()), children)
+}
+
+fn toolbox_menu_tree(config: &SRightConfig) -> Option<MenuTreeItem> {
+    let children = config
+        .menus
+        .iter()
+        .filter(|menu| menu.enabled)
+        .filter(|menu| is_toolbox_menu_item(&menu.id))
+        .map(|menu| leaf_menu_item(&menu.title, &menu.id, None))
+        .collect::<Vec<_>>();
+
+    group_menu_item(
+        "工具箱",
+        Some("system:wrench.and.screwdriver".to_string()),
+        children,
+    )
+}
+
+fn is_toolbox_menu_item(action_id: &str) -> bool {
+    !action_id.starts_with("new_file.")
+        && !action_id.starts_with("favorite.open.")
+        && !action_id.starts_with("send.copy_to.")
+        && !action_id.starts_with("send.move_to.")
+}
+
+fn enabled_menu<'a>(config: &'a SRightConfig, action_id: &str) -> Option<&'a MenuItem> {
+    config
+        .menus
+        .iter()
+        .find(|menu| menu.id == action_id && menu.enabled)
+}
+
+fn group_menu_item(
+    title: &str,
+    icon: Option<String>,
+    children: Vec<MenuTreeItem>,
+) -> Option<MenuTreeItem> {
+    if children.is_empty() {
+        return None;
+    }
+
+    Some(MenuTreeItem {
+        title: title.to_string(),
+        action_id: None,
+        icon,
+        children,
+    })
+}
+
+fn leaf_menu_item(title: &str, action_id: &str, icon: Option<String>) -> MenuTreeItem {
+    MenuTreeItem {
+        title: title.to_string(),
+        action_id: Some(action_id.to_string()),
+        icon,
+        children: Vec::new(),
+    }
+}
+
+fn known_menu_ids(
+    favorite_dirs: &[FavoriteDirectory],
+    send_dirs: &[FavoriteDirectory],
+) -> HashSet<String> {
+    let mut ids = action_descriptors()
+        .into_iter()
+        .map(|descriptor| descriptor.id)
+        .collect::<HashSet<_>>();
+
+    for directory in favorite_dirs {
+        ids.insert(format!("favorite.open.{}", directory.id));
+    }
+
+    for directory in send_dirs {
+        for (id, _) in send_menu_items(directory) {
+            ids.insert(id);
+        }
+    }
+
+    ids
 }
 
 fn default_file_templates() -> Vec<FileTemplate> {
@@ -309,6 +529,14 @@ fn open_app(id: &str, title: &str, bundle_id: &str) -> OpenApp {
 }
 
 fn default_favorite_dirs() -> Vec<FavoriteDirectory> {
+    default_directory_presets()
+}
+
+fn default_send_dirs() -> Vec<FavoriteDirectory> {
+    default_directory_presets()
+}
+
+fn default_directory_presets() -> Vec<FavoriteDirectory> {
     vec![
         favorite_dir("downloads", "下载", "~/Downloads"),
         favorite_dir("pictures", "图片", "~/Pictures"),
@@ -328,18 +556,6 @@ fn favorite_dir(id: &str, title: &str, path: &str) -> FavoriteDirectory {
     }
 }
 
-fn ensure_file_templates(templates: &mut Vec<FileTemplate>) {
-    for default_template in default_file_templates() {
-        if templates
-            .iter()
-            .any(|template| template.id == default_template.id)
-        {
-            continue;
-        }
-        templates.push(default_template);
-    }
-}
-
 fn ensure_open_apps(apps: &mut Vec<OpenApp>) {
     for default_app in default_open_apps() {
         if apps.iter().any(|app| app.id == default_app.id) {
@@ -350,7 +566,15 @@ fn ensure_open_apps(apps: &mut Vec<OpenApp>) {
 }
 
 fn ensure_favorite_dirs(directories: &mut Vec<FavoriteDirectory>) {
-    for default_directory in default_favorite_dirs() {
+    ensure_directory_presets(directories);
+}
+
+fn ensure_send_dirs(directories: &mut Vec<FavoriteDirectory>) {
+    ensure_directory_presets(directories);
+}
+
+fn ensure_directory_presets(directories: &mut Vec<FavoriteDirectory>) {
+    for default_directory in default_directory_presets() {
         if directories
             .iter()
             .any(|directory| directory.id == default_directory.id)
@@ -363,7 +587,28 @@ fn ensure_favorite_dirs(directories: &mut Vec<FavoriteDirectory>) {
 
 fn ensure_favorite_menus(menus: &mut Vec<MenuItem>, directories: &[FavoriteDirectory]) {
     for directory in directories {
-        for (id, title) in favorite_menu_items(directory) {
+        let id = format!("favorite.open.{}", directory.id);
+        let title = format!("打开{}", directory.title);
+        if let Some(menu) = menus.iter_mut().find(|menu| menu.id == id) {
+            menu.title = title;
+            menu.dangerous = false;
+            continue;
+        }
+
+        menus.push(MenuItem {
+            id,
+            title,
+            enabled: directory.enabled,
+            dangerous: false,
+            file_kinds: Vec::new(),
+            extensions: Vec::new(),
+        });
+    }
+}
+
+fn ensure_send_menus(menus: &mut Vec<MenuItem>, directories: &[FavoriteDirectory]) {
+    for directory in directories {
+        for (id, title) in send_menu_items(directory) {
             if let Some(menu) = menus.iter_mut().find(|menu| menu.id == id) {
                 menu.title = title;
                 menu.dangerous = false;
@@ -382,12 +627,8 @@ fn ensure_favorite_menus(menus: &mut Vec<MenuItem>, directories: &[FavoriteDirec
     }
 }
 
-fn favorite_menu_items(directory: &FavoriteDirectory) -> [(String, String); 3] {
+fn send_menu_items(directory: &FavoriteDirectory) -> [(String, String); 2] {
     [
-        (
-            format!("favorite.open.{}", directory.id),
-            format!("打开{}", directory.title),
-        ),
         (
             format!("send.copy_to.{}", directory.id),
             format!("复制到{}", directory.title),

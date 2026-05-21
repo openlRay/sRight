@@ -1,14 +1,11 @@
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
 use sright_core::{
     action_descriptors, default_config, execute_action, ActionRequest, DangerousConfirmationConfig,
 };
-
-static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 #[test]
 fn default_config_includes_phase2_menus_and_dangerous_confirmation() {
@@ -20,13 +17,8 @@ fn default_config_includes_phase2_menus_and_dangerous_confirmation() {
         .collect::<Vec<_>>();
 
     for id in [
-        "debug.echo",
         "copy.path",
-        "copy.real_path",
         "copy.name",
-        "copy.parent_path",
-        "copy.shell_escaped_path",
-        "file.move_to_trash",
         "file.delete_permanently",
         "folder.create_from_filename",
         "folder.dissolve",
@@ -39,10 +31,6 @@ fn default_config_includes_phase2_menus_and_dangerous_confirmation() {
     assert!(config
         .dangerous_confirmation
         .action_ids
-        .contains(&"file.move_to_trash".to_string()));
-    assert!(config
-        .dangerous_confirmation
-        .action_ids
         .contains(&"file.delete_permanently".to_string()));
 }
 
@@ -52,13 +40,7 @@ fn action_registry_marks_dangerous_actions() {
 
     assert!(descriptors
         .iter()
-        .any(|action| action.id == "copy.shell_escaped_path"));
-    assert!(descriptors
-        .iter()
         .any(|action| action.id == "file.delete_permanently" && action.dangerous));
-    assert!(descriptors
-        .iter()
-        .any(|action| action.id == "file.move_to_trash" && action.dangerous));
 }
 
 #[test]
@@ -70,24 +52,6 @@ fn copy_variants_return_expected_payload_text() {
 
     assert_payload_text("copy.path", &[file.clone()], &file.display().to_string());
     assert_payload_text("copy.name", &[file.clone()], "hello world.txt");
-    assert_payload_text(
-        "copy.parent_path",
-        &[file.clone()],
-        &root.display().to_string(),
-    );
-    assert_payload_text(
-        "copy.shell_escaped_path",
-        &[file.clone()],
-        &format!("'{}'", file.display()),
-    );
-
-    let real_path = execute_action(request("copy.real_path", &[file], false))
-        .unwrap()
-        .payload["text"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    assert!(PathBuf::from(real_path).is_absolute());
 }
 
 #[test]
@@ -174,30 +138,22 @@ fn dangerous_actions_require_confirmation() {
 }
 
 #[test]
-fn move_to_trash_uses_testable_trash_boundary() {
-    let _guard = ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-    let root = temp_dir("trash");
-    let trash_dir = root.join("UserTrash");
-    fs::create_dir_all(&root).unwrap();
-    let file = root.join("trash-me.txt");
-    fs::write(&file, "trash").unwrap();
-    std::env::set_var("SRIGHT_TRASH_DIR", &trash_dir);
-
-    execute_action(request("file.move_to_trash", &[file.clone()], true)).unwrap();
-
-    assert!(!file.exists());
-    assert!(trash_dir.join("trash-me.txt").exists());
-
-    std::env::remove_var("SRIGHT_TRASH_DIR");
-}
-
-#[test]
 fn dangerous_confirmation_config_defaults_to_all_dangerous_actions() {
     let config = DangerousConfirmationConfig::default();
 
-    assert!(config.requires_confirmation("file.move_to_trash"));
     assert!(config.requires_confirmation("file.delete_permanently"));
     assert!(!config.requires_confirmation("copy.path"));
+}
+
+#[test]
+fn unknown_action_is_rejected() {
+    let error = execute_action(request(
+        "legacy.action",
+        &[PathBuf::from("/tmp/example.txt")],
+        true,
+    ))
+    .expect_err("unknown action should not execute");
+    assert!(error.to_string().contains("unknown action"));
 }
 
 fn assert_payload_text(action_id: &str, paths: &[PathBuf], expected: &str) {

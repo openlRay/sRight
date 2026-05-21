@@ -1,70 +1,84 @@
 .preference-window {
     display: grid;
-    grid-template-columns: 280px minmax(0, 1fr);
-    min-height: 100vh;
+    grid-template-columns: 200px minmax(0, 1fr);
+    height: 100vh;
     overflow: hidden;
+    border-radius: 18px;
     background: @color-canvas;
 }
 
 .sidebar {
     display: grid;
     grid-template-rows: auto auto 1fr;
-    gap: @space-3xl;
+    gap: 12px;
     min-height: 100vh;
-    border-right: 1px solid @color-hairline;
-    background: @color-canvas;
-    color: @color-ink;
+    border-right: 1px solid @color-primary;
+    background: @color-primary;
+    color: @color-on-primary;
     padding: @space-2xl @space-lg @space-3xl;
 }
 
 .traffic-lights {
     display: flex;
+    align-items: center;
     gap: @space-md;
     padding-left: @space-sm;
 }
 
 .traffic-light {
-    width: 17px;
-    height: 17px;
+    position: relative;
+    width: 14px;
+    height: 14px;
+    border: 0;
     border-radius: 50%;
+    cursor: pointer;
+    padding: 0;
 
     &.close {
         background: #ff5f57;
+
+        &::before {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #7f1510;
+            content: '×';
+            font-size: 12px;
+            font-weight: 900;
+        }
     }
 
     &.minimize {
         background: #febc2e;
+
+        &::before {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 8px;
+            height: 2px;
+            font-weight: 900;
+            border-radius: @radius-full;
+            background: #7a5700;
+            content: '';
+        }
+    }
+
+    &:hover {
+        filter: brightness(1.1);
     }
 }
 
 .brand {
-    display: grid;
-    justify-items: start;
-    gap: @space-md;
-    margin-top: @space-xl;
-    padding: 0 @space-sm;
-    font-size: 20px;
-    font-weight: 600;
-    line-height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 
     img {
         width: 72px;
         height: 72px;
-        border: 1px solid @color-hairline;
-        border-radius: @radius-md;
-        box-shadow: @shadow-layered;
-    }
-
-    a {
-        display: inline-flex;
-        min-height: 28px;
-        align-items: center;
-        border-bottom: 1px solid @color-primary;
-        color: @color-primary;
-        font-size: 14px;
-        font-weight: 500;
-        line-height: 22px;
-        text-decoration: none;
     }
 }
 
@@ -84,7 +98,7 @@
         border: 0;
         border-radius: @radius-sm;
         background: transparent;
-        color: @color-ink;
+        color: @color-on-primary;
         font-size: 14px;
         font-weight: 500;
         line-height: 22px;
@@ -96,12 +110,13 @@
             transform 160ms ease;
 
         &:hover {
+            background: rgba(255, 255, 255, 0.24);
             transform: translateY(-1px);
         }
 
         &.active {
-            background: @color-primary;
-            color: @color-on-primary;
+            background: @color-canvas;
+            color: @color-primary;
 
             &::before {
                 position: absolute;
@@ -109,7 +124,7 @@
                 width: 4px;
                 height: 28px;
                 border-radius: @radius-sm;
-                background: @color-primary;
+                background: @color-canvas;
                 content: '';
             }
         }
@@ -149,8 +164,9 @@
 
 .content-pane {
     min-width: 0;
+    min-height: 0;
     padding: @space-3xl;
-    overflow: auto;
+    overflow: hidden;
     background: @color-canvas;
 }
 
@@ -177,5 +193,35 @@
 
     .content-pane {
         padding: @space-xl;
+    }
+}
+
+.template-actions {
+    display: flex;
+    align-items: center;
+    margin-top: @space-lg;
+    gap: @space-xl;
+}
+
+.template-options {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: @space-md 120px;
+    margin-top: @space-lg;
+    max-width: 650px;
+
+    label {
+        display: inline-flex;
+        align-items: center;
+        gap: @space-md;
+        color: @color-body;
+        font-size: 16px;
+    }
+}
+
+@media (max-width: 820px) {
+    .template-options {
+        grid-template-columns: 1fr;
+        gap: 14px;
     }
 }

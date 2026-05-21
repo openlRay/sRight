@@ -4,11 +4,13 @@ set -eu
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 APP_SUPPORT_DIR=${SRIGHT_APP_SUPPORT_DIR:-"$HOME/Library/Application Support/sRight"}
 CLI_PATH="$ROOT_DIR/target/debug/sright-cli"
+DESKTOP_PATH="$ROOT_DIR/target/debug/sright-desktop"
 BRIDGE_PATH="$APP_SUPPORT_DIR/sright-cli-debug.sh"
 ACTION_LOG="$APP_SUPPORT_DIR/actions.jsonl"
 FINDER_TRACE_LOG="$APP_SUPPORT_DIR/finder-sync-trace.log"
 START_TAURI=1
 RESTART_FINDER=1
+DEV_PORT=1420
 
 usage() {
   cat <<'EOF'
@@ -59,6 +61,36 @@ require_command() {
     echo "Missing required command: $1" >&2
     exit 1
   fi
+}
+
+free_dev_port() {
+  if ! command -v lsof >/dev/null 2>&1; then
+    return
+  fi
+
+  pids=$(lsof -ti "tcp:$DEV_PORT" 2>/dev/null || true)
+  if [ -z "$pids" ]; then
+    return
+  fi
+
+  echo "停止占用 127.0.0.1:$DEV_PORT 的旧 dev server: $pids"
+  for pid in $pids; do
+    kill "$pid" >/dev/null 2>&1 || true
+  done
+  sleep 1
+}
+
+stop_debug_app() {
+  pids=$(pgrep -f "$DESKTOP_PATH" 2>/dev/null || true)
+  if [ -z "$pids" ]; then
+    return
+  fi
+
+  echo "停止旧的 sRight debug app: $pids"
+  for pid in $pids; do
+    kill "$pid" >/dev/null 2>&1 || true
+  done
+  sleep 1
 }
 
 write_bridge() {
@@ -115,5 +147,7 @@ fi
 print_next_steps
 
 if [ "$START_TAURI" -eq 1 ]; then
+  stop_debug_app
+  free_dev_port
   exec pnpm --filter @sright/desktop tauri dev
 fi
