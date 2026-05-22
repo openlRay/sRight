@@ -66,6 +66,11 @@ fn file_info_returns_metadata_payload() {
     assert_eq!(result.selected_count, 1);
     assert_eq!(result.payload["items"][0]["name"], "info.txt");
     assert_eq!(result.payload["items"][0]["is_file"], true);
+    assert_eq!(result.payload["presentation"], "dialog");
+    assert!(result.payload["display_text"]
+        .as_str()
+        .unwrap()
+        .contains("名称：info.txt"));
     assert_eq!(
         result.payload["items"][0]["path"],
         file.display().to_string()

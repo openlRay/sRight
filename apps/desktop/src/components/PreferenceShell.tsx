@@ -6,6 +6,7 @@ import { closeWindow, minimizeWindow } from '../lib/api';
 import { preferenceSections } from '../router/sections';
 import { usePreferenceStore } from '../stores/preferences';
 
+const appIconUrl = new URL('../../src-tauri/icons/icon.png', import.meta.url).href;
 const dragStartDelay = 180;
 const panelDragBlockedSelector = 'a, button, input, select, textarea, [role="button"], [data-no-panel-drag]';
 
@@ -71,7 +72,7 @@ export default function PreferenceShell() {
                 </div>
 
                 <div className="brand">
-                    <img src="/src-tauri/icons/icon.png" alt="" />
+                    <img src={appIconUrl} alt="" />
                 </div>
 
                 <nav className="sidebar-nav" aria-label="偏好设置分类">

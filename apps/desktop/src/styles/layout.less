@@ -1,17 +1,18 @@
 .preference-window {
     display: grid;
     grid-template-columns: 200px minmax(0, 1fr);
-    height: 100vh;
+    height: 100%;
     overflow: hidden;
     border-radius: 18px;
     background: @color-canvas;
+    box-shadow: @shadow-layered;
 }
 
 .sidebar {
     display: grid;
     grid-template-rows: auto auto 1fr;
     gap: 12px;
-    min-height: 100vh;
+    min-height: 100%;
     border-right: 1px solid @color-primary;
     background: @color-primary;
     color: @color-on-primary;

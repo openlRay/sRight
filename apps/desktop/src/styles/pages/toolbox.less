@@ -1,5 +1,25 @@
 .toolbox-page {
     gap: @space-xl;
+
+    .settings-table-scroll th:nth-child(3),
+    .settings-table-scroll td:nth-child(3) {
+        width: 220px;
+    }
+
+    .settings-table-scroll th:nth-child(4),
+    .settings-table-scroll td:nth-child(4) {
+        width: 150px;
+    }
+
+    .settings-table-scroll th:nth-child(5),
+    .settings-table-scroll td:nth-child(5) {
+        width: 90px;
+    }
+
+    .settings-table-scroll th:nth-child(6),
+    .settings-table-scroll td:nth-child(6) {
+        width: 100px;
+    }
 }
 
 .page-header {
@@ -89,14 +109,7 @@
 }
 
 .toolbox-option-select {
-    min-width: 150px;
-    height: 32px;
-    border: 1px solid @color-hairline;
-    border-radius: @radius-sm;
-    background: #ffffff;
-    color: @color-ink;
-    font-size: 13px;
-    padding: 0 @space-md;
+    width: 100%;
 }
 
 .toolbox-option-empty {

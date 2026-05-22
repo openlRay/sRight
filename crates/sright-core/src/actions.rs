@@ -1,6 +1,8 @@
 use std::env;
 use std::fs::{self, File};
 use std::io::{Read, Write};
+#[cfg(unix)]
+use std::os::unix::fs as unix_fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -9,13 +11,11 @@ use qrcode::{render::svg, QrCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha1::Sha1;
-use sha2::{Digest, Sha256};
+use sha2::{Digest, Sha256, Sha512};
 use walkdir::WalkDir;
 use zip::write::FileOptions;
 
 use crate::config::{FavoriteDirectory, SRightConfig};
-use crate::logging::read_recent_logs;
-use crate::paths::log_path;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ActionRequest {
@@ -60,6 +60,8 @@ pub enum ActionError {
     EmptySelection(String),
     #[error("selected path is not a folder: {0}")]
     NotAFolder(String),
+    #[error("selected path is not a file: {0}")]
+    NotAFile(String),
     #[error("selected path has no file name: {0}")]
     MissingFileName(String),
     #[error("target already exists: {0}")]
@@ -93,7 +95,7 @@ pub type ActionExecutionResult<T> = Result<T, ActionError>;
 pub fn action_descriptors() -> Vec<ActionDescriptor> {
     vec![
         descriptor("copy.path", "拷贝路径", false),
-        descriptor("copy.name", "复制名称", false),
+        descriptor("copy.name", "拷贝文件(夹)名称", false),
         descriptor("file.delete_permanently", "彻底删除", true),
         descriptor("folder.create_from_filename", "根据文件名创建文件夹", false),
         descriptor("folder.dissolve", "解散文件夹", false),
@@ -146,17 +148,23 @@ pub fn action_descriptors() -> Vec<ActionDescriptor> {
         descriptor("image.convert.heic", "图片转 HEIC", false),
         descriptor("icon.make_iconset", "生成 iconset", false),
         descriptor("icon.make_icns", "生成 ICNS", false),
-        descriptor("icon.set_custom", "设置自定义图标", false),
-        descriptor("icon.remove_custom", "删除自定义图标", false),
+        descriptor("file.shortcut_desktop", "发送快捷方式到桌面", false),
+        descriptor("share.airdrop", "隔空投送", false),
         descriptor("tool.hash.md5", "计算 MD5", false),
         descriptor("tool.hash.sha1", "计算 SHA1", false),
         descriptor("tool.hash.sha256", "计算 SHA256", false),
-        descriptor("tool.qr.path", "文件路径生成二维码", false),
+        descriptor("tool.hash.sha512", "计算 SHA512", false),
+        descriptor("tool.qr.file", "选中图片/文件生成二维码", false),
         descriptor("tool.open_parent", "打开所在目录", false),
-        descriptor("tool.copy_summary", "复制文件摘要信息", false),
-        descriptor("script.run.default", "运行默认脚本动作", false),
-        descriptor("logs.search", "搜索动作日志", false),
-        descriptor("logs.export", "导出动作日志", false),
+        descriptor("file.cut", "剪切", false),
+        descriptor("favorite.add_selected", "添加到常用目录", false),
+        descriptor("permission.grant_write", "授予选择的文件写入权限", false),
+        descriptor("visibility.unhide_all", "取消隐藏所有文件", false),
+        descriptor("visibility.hide_all", "隐藏所有文件", false),
+        descriptor("visibility.unhide_selected", "取消隐藏已选文件", false),
+        descriptor("visibility.hide_selected", "隐藏已选文件", false),
+        descriptor("finder.show_extensions", "显示文件扩展名", false),
+        descriptor("finder.hide_extensions", "隐藏文件扩展名", false),
     ]
 }
 
@@ -251,17 +259,23 @@ fn execute_action_with_directories(
         "image.convert.heic" => convert_image(request, "heic"),
         "icon.make_iconset" => icon_tool_action(request, "make_iconset"),
         "icon.make_icns" => icon_tool_action(request, "make_icns"),
-        "icon.set_custom" => icon_tool_action(request, "set_custom"),
-        "icon.remove_custom" => icon_tool_action(request, "remove_custom"),
+        "file.shortcut_desktop" => send_shortcuts_to_desktop(request),
+        "share.airdrop" => share_airdrop(request),
         "tool.hash.md5" => hash_files::<Md5>(request, "md5"),
         "tool.hash.sha1" => hash_files::<Sha1>(request, "sha1"),
         "tool.hash.sha256" => hash_files::<Sha256>(request, "sha256"),
-        "tool.qr.path" => qr_for_paths(request),
+        "tool.hash.sha512" => hash_files::<Sha512>(request, "sha512"),
+        "tool.qr.file" | "tool.qr.path" => qr_for_files(request),
         "tool.open_parent" => open_parent(request),
-        "tool.copy_summary" => copy_summary(request),
-        "script.run.default" => run_script_action(request),
-        "logs.search" => search_logs(request),
-        "logs.export" => export_logs(request),
+        "file.cut" => cut_files(request),
+        "favorite.add_selected" => add_selected_to_favorites(request),
+        "permission.grant_write" => grant_write_permissions(request),
+        "visibility.unhide_all" => set_hidden_flag(request, "nohidden", true),
+        "visibility.hide_all" => set_hidden_flag(request, "hidden", true),
+        "visibility.unhide_selected" => set_hidden_flag(request, "nohidden", false),
+        "visibility.hide_selected" => set_hidden_flag(request, "hidden", false),
+        "finder.show_extensions" => set_extension_visibility(request, false),
+        "finder.hide_extensions" => set_extension_visibility(request, true),
         "folder.create_from_filename" => create_folders_from_filename(request),
         "folder.dissolve" => dissolve_folders(request),
         "file.delete_permanently" => delete_permanently(request),
@@ -364,13 +378,52 @@ fn file_info(request: ActionRequest) -> ActionExecutionResult<ActionResult> {
             }))
         })
         .collect::<ActionExecutionResult<Vec<_>>>()?;
+    let display_text = items
+        .iter()
+        .map(format_file_info_item)
+        .collect::<Vec<_>>()
+        .join("\n\n");
 
     Ok(ActionResult {
         action_id: request.action_id,
         selected_count: request.paths.len(),
         message: format!("Collected file info for {} item(s)", request.paths.len()),
-        payload: json!({ "items": items }),
+        payload: json!({
+            "presentation": "dialog",
+            "title": "查看文件信息",
+            "display_text": display_text,
+            "copy_text": display_text,
+            "items": items
+        }),
     })
+}
+
+fn format_file_info_item(item: &Value) -> String {
+    let name = item.get("name").and_then(Value::as_str).unwrap_or_default();
+    let path = item.get("path").and_then(Value::as_str).unwrap_or_default();
+    let real_path = item
+        .get("real_path")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let len = item.get("len").and_then(Value::as_u64).unwrap_or_default();
+    let type_name = if item.get("is_dir").and_then(Value::as_bool).unwrap_or(false) {
+        "文件夹"
+    } else {
+        "文件"
+    };
+    let readonly = if item
+        .get("readonly")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        "只读"
+    } else {
+        "可写"
+    };
+
+    format!(
+        "名称：{name}\n类型：{type_name}\n大小：{len} bytes\n权限：{readonly}\n路径：{path}\n真实路径：{real_path}"
+    )
 }
 
 fn create_new_file(
@@ -689,6 +742,79 @@ fn icon_tool_action(request: ActionRequest, tool_id: &str) -> ActionExecutionRes
     )
 }
 
+fn send_shortcuts_to_desktop(request: ActionRequest) -> ActionExecutionResult<ActionResult> {
+    require_selection(&request)?;
+    let desktop = favorite_directory("desktop", &[]);
+    fs::create_dir_all(&desktop).map_err(|source| ActionError::Io {
+        path: desktop.clone(),
+        source,
+    })?;
+
+    let mut created = Vec::new();
+    for source in &request.paths {
+        let file_name = source
+            .file_name()
+            .ok_or_else(|| ActionError::MissingFileName(source.display().to_string()))?;
+        let target = unique_name_target(&desktop, Path::new(file_name));
+        create_symlink(source, &target)?;
+        created.push(target.display().to_string());
+    }
+
+    Ok(ActionResult {
+        action_id: request.action_id,
+        selected_count: request.paths.len(),
+        message: format!("Created {} desktop shortcut(s)", created.len()),
+        payload: json!({ "created": created }),
+    })
+}
+
+#[cfg(unix)]
+fn create_symlink(source: &Path, target: &Path) -> ActionExecutionResult<()> {
+    unix_fs::symlink(source, target).map_err(|source_error| ActionError::Io {
+        path: target.to_path_buf(),
+        source: source_error,
+    })
+}
+
+#[cfg(not(unix))]
+fn create_symlink(source: &Path, target: &Path) -> ActionExecutionResult<()> {
+    fs::copy(source, target)
+        .map(|_| ())
+        .map_err(|source_error| ActionError::Io {
+            path: source.to_path_buf(),
+            source: source_error,
+        })
+}
+
+fn share_airdrop(request: ActionRequest) -> ActionExecutionResult<ActionResult> {
+    require_selection(&request)?;
+    if let Some(log_path) = env::var_os("SRIGHT_AIRDROP_LOG_FILE").map(PathBuf::from) {
+        append_tool_log(&log_path, "share.airdrop", &request.paths)?;
+    } else {
+        let status = Command::new("/usr/bin/open")
+            .arg("-a")
+            .arg("AirDrop")
+            .args(&request.paths)
+            .status()
+            .map_err(|source| ActionError::Io {
+                path: PathBuf::from("/usr/bin/open"),
+                source,
+            })?;
+        if !status.success() {
+            return Err(ActionError::CommandFailed(format!(
+                "open -a AirDrop exited with status {status}"
+            )));
+        }
+    }
+
+    Ok(ActionResult {
+        action_id: request.action_id,
+        selected_count: request.paths.len(),
+        message: format!("Sent {} item(s) to AirDrop", request.paths.len()),
+        payload: json!({ "paths": request.paths }),
+    })
+}
+
 fn hash_files<D>(request: ActionRequest, algorithm: &str) -> ActionExecutionResult<ActionResult>
 where
     D: Digest + Default,
@@ -712,14 +838,23 @@ where
         action_id: request.action_id,
         selected_count: request.paths.len(),
         message: format!("Calculated {algorithm} for {} item(s)", request.paths.len()),
-        payload: json!({ "text": text }),
+        payload: json!({
+            "presentation": "dialog",
+            "title": format!("计算 {}", algorithm.to_ascii_uppercase()),
+            "display_text": text,
+            "copy_text": text
+        }),
     })
 }
 
-fn qr_for_paths(request: ActionRequest) -> ActionExecutionResult<ActionResult> {
+fn qr_for_files(request: ActionRequest) -> ActionExecutionResult<ActionResult> {
     require_selection(&request)?;
     let mut created = Vec::new();
+    let mut sources = Vec::new();
     for path in &request.paths {
+        if !path.is_file() {
+            return Err(ActionError::NotAFile(path.display().to_string()));
+        }
         let parent = path
             .parent()
             .ok_or_else(|| ActionError::MissingFileName(path.display().to_string()))?;
@@ -728,23 +863,24 @@ fn qr_for_paths(request: ActionRequest) -> ActionExecutionResult<ActionResult> {
             .ok_or_else(|| ActionError::MissingFileName(path.display().to_string()))?;
         let target = unique_name_target(
             parent,
-            Path::new(&format!("{}.path-qr.svg", stem.to_string_lossy())),
+            Path::new(&format!("{}.file-qr.svg", stem.to_string_lossy())),
         );
-        let code = QrCode::new(path.display().to_string())
-            .map_err(|error| ActionError::Qr(error.to_string()))?;
+        let source = format!("file://{}", path.display());
+        let code = QrCode::new(&source).map_err(|error| ActionError::Qr(error.to_string()))?;
         let image = code.render::<svg::Color>().min_dimensions(256, 256).build();
         fs::write(&target, image).map_err(|source| ActionError::Io {
             path: target.clone(),
             source,
         })?;
         created.push(target.display().to_string());
+        sources.push(source);
     }
 
     Ok(ActionResult {
         action_id: request.action_id,
         selected_count: request.paths.len(),
         message: format!("Created {} QR file(s)", created.len()),
-        payload: json!({ "created": created }),
+        payload: json!({ "created": created, "sources": sources }),
     })
 }
 
@@ -769,118 +905,262 @@ fn open_parent(request: ActionRequest) -> ActionExecutionResult<ActionResult> {
     )
 }
 
-fn copy_summary(request: ActionRequest) -> ActionExecutionResult<ActionResult> {
+fn cut_files(request: ActionRequest) -> ActionExecutionResult<ActionResult> {
     require_selection(&request)?;
     let text = request
         .paths
         .iter()
-        .map(|path| {
-            let metadata = fs::metadata(path).map_err(|source| ActionError::Io {
-                path: path.clone(),
-                source,
-            })?;
-            Ok(format!(
-                "{}\t{}\t{} bytes",
-                path.file_name()
-                    .map(|name| name.to_string_lossy().to_string())
-                    .unwrap_or_else(|| path.display().to_string()),
-                if metadata.is_dir() { "folder" } else { "file" },
-                metadata.len()
-            ))
-        })
-        .collect::<ActionExecutionResult<Vec<_>>>()?
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
         .join("\n");
 
     Ok(ActionResult {
         action_id: request.action_id,
         selected_count: request.paths.len(),
-        message: format!("Copied summary for {} item(s)", request.paths.len()),
-        payload: json!({ "text": text }),
+        message: format!("Prepared {} item(s) for cut", request.paths.len()),
+        payload: json!({
+            "text": text,
+            "paths": request.paths,
+            "clipboard_operation": "cut"
+        }),
     })
 }
 
-fn run_script_action(request: ActionRequest) -> ActionExecutionResult<ActionResult> {
+fn add_selected_to_favorites(request: ActionRequest) -> ActionExecutionResult<ActionResult> {
     require_selection(&request)?;
-    if let Some(log_path) = env::var_os("SRIGHT_SCRIPT_LOG_FILE").map(PathBuf::from) {
-        append_tool_log(&log_path, "script.run.default", &request.paths)?;
-    } else if let Ok(script) = env::var("SRIGHT_DEFAULT_SCRIPT") {
-        let status = Command::new(script)
-            .args(&request.paths)
-            .status()
-            .map_err(|source| ActionError::Io {
-                path: PathBuf::from("SRIGHT_DEFAULT_SCRIPT"),
-                source,
-            })?;
-        if !status.success() {
-            return Err(ActionError::CommandFailed(format!(
-                "default script exited with status {status}"
-            )));
+    let mut seen = std::collections::HashSet::new();
+    let mut directories = Vec::new();
+
+    for path in &request.paths {
+        let directory = if path.is_dir() {
+            path.clone()
+        } else {
+            path.parent()
+                .map(Path::to_path_buf)
+                .ok_or_else(|| ActionError::MissingFileName(path.display().to_string()))?
+        };
+        let directory = directory
+            .canonicalize()
+            .unwrap_or_else(|_| directory.to_path_buf());
+        let path_text = directory.display().to_string();
+        if !seen.insert(path_text.clone()) {
+            continue;
         }
-    } else {
-        return Err(ActionError::CommandFailed(
-            "SRIGHT_DEFAULT_SCRIPT is not configured".to_string(),
-        ));
+        let title = directory
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| path_text.clone());
+        directories.push(json!({
+            "id": unique_favorite_id(&title, &path_text),
+            "title": title,
+            "path": path_text,
+            "enabled": true
+        }));
     }
 
     Ok(ActionResult {
         action_id: request.action_id,
         selected_count: request.paths.len(),
-        message: format!("Ran script for {} item(s)", request.paths.len()),
-        payload: json!({ "paths": request.paths }),
+        message: format!("Prepared {} favorite directorie(s)", directories.len()),
+        payload: json!({ "favorite_dirs": directories }),
     })
 }
 
-fn search_logs(request: ActionRequest) -> ActionExecutionResult<ActionResult> {
-    let query = request
-        .paths
-        .first()
-        .map(|path| path.display().to_string())
-        .unwrap_or_default();
-    let query_lower = query.to_lowercase();
-    let matches = read_recent_logs(500)
-        .map_err(|error| ActionError::CommandFailed(error.to_string()))?
-        .into_iter()
-        .filter(|entry| {
-            let haystack = format!(
-                "{} {} {}",
-                entry.action_id,
-                entry.message,
-                entry.error.clone().unwrap_or_default()
-            )
-            .to_lowercase();
-            haystack.contains(&query_lower)
+fn unique_favorite_id(title: &str, path: &str) -> String {
+    let base = title
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '_'
+            }
         })
-        .collect::<Vec<_>>();
+        .collect::<String>()
+        .trim_matches('_')
+        .to_string();
+    if !base.is_empty() {
+        return base;
+    }
+
+    format!(
+        "dir_{}",
+        path.bytes().fold(0_u32, |hash, byte| {
+            hash.wrapping_mul(31).wrapping_add(byte as u32)
+        })
+    )
+}
+
+fn grant_write_permissions(request: ActionRequest) -> ActionExecutionResult<ActionResult> {
+    require_selection(&request)?;
+    let mut updated = Vec::new();
+    for path in &request.paths {
+        grant_write_permission(path, &mut updated)?;
+    }
 
     Ok(ActionResult {
         action_id: request.action_id,
         selected_count: request.paths.len(),
-        message: format!("Found {} log match(es)", matches.len()),
-        payload: json!({ "matches": matches }),
+        message: format!("Granted write permission to {} item(s)", updated.len()),
+        payload: json!({ "updated": updated }),
     })
 }
 
-fn export_logs(request: ActionRequest) -> ActionExecutionResult<ActionResult> {
-    let target = env::var_os("SRIGHT_LOG_EXPORT_PATH")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| unique_name_target(&env::temp_dir(), Path::new("sright-actions.jsonl")));
-    let source = log_path();
-    if let Some(parent) = target.parent() {
+fn grant_write_permission(path: &Path, updated: &mut Vec<String>) -> ActionExecutionResult<()> {
+    let metadata = fs::metadata(path).map_err(|source| ActionError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let mut permissions = metadata.permissions();
+    permissions.set_readonly(false);
+    fs::set_permissions(path, permissions).map_err(|source| ActionError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    updated.push(path.display().to_string());
+
+    if metadata.is_dir() {
+        for entry in fs::read_dir(path).map_err(|source| ActionError::Io {
+            path: path.to_path_buf(),
+            source,
+        })? {
+            let entry = entry.map_err(|source| ActionError::Io {
+                path: path.to_path_buf(),
+                source,
+            })?;
+            grant_write_permission(&entry.path(), updated)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn set_hidden_flag(
+    request: ActionRequest,
+    flag: &str,
+    recursive: bool,
+) -> ActionExecutionResult<ActionResult> {
+    require_selection(&request)?;
+    if let Some(log_path) = env::var_os("SRIGHT_CHFLAGS_LOG_FILE").map(PathBuf::from) {
+        append_command_log(
+            &log_path,
+            "chflags",
+            recursive.then_some("-R"),
+            flag,
+            &request.paths,
+        )?;
+    } else {
+        let mut command = Command::new("/usr/bin/chflags");
+        if recursive {
+            command.arg("-R");
+        }
+        let status = command
+            .arg(flag)
+            .args(&request.paths)
+            .status()
+            .map_err(|source| ActionError::Io {
+                path: PathBuf::from("/usr/bin/chflags"),
+                source,
+            })?;
+        if !status.success() {
+            return Err(ActionError::CommandFailed(format!(
+                "chflags {flag} exited with status {status}"
+            )));
+        }
+    }
+
+    Ok(ActionResult {
+        action_id: request.action_id,
+        selected_count: request.paths.len(),
+        message: format!("Updated hidden flag for {} item(s)", request.paths.len()),
+        payload: json!({ "paths": request.paths, "flag": flag, "recursive": recursive }),
+    })
+}
+
+fn set_extension_visibility(
+    request: ActionRequest,
+    hidden: bool,
+) -> ActionExecutionResult<ActionResult> {
+    require_selection(&request)?;
+    if let Some(log_path) = env::var_os("SRIGHT_EXTENSION_VISIBILITY_LOG_FILE").map(PathBuf::from) {
+        append_command_log(
+            &log_path,
+            if hidden { "hide" } else { "show" },
+            None,
+            "extension",
+            &request.paths,
+        )?;
+    } else {
+        for path in &request.paths {
+            let script = format!(
+                "tell application \"Finder\" to set extension hidden of (POSIX file \"{}\" as alias) to {}",
+                applescript_string(path),
+                if hidden { "true" } else { "false" }
+            );
+            let status = Command::new("/usr/bin/osascript")
+                .arg("-e")
+                .arg(script)
+                .status()
+                .map_err(|source| ActionError::Io {
+                    path: PathBuf::from("/usr/bin/osascript"),
+                    source,
+                })?;
+            if !status.success() {
+                return Err(ActionError::CommandFailed(format!(
+                    "osascript extension visibility exited with status {status}"
+                )));
+            }
+        }
+    }
+
+    Ok(ActionResult {
+        action_id: request.action_id,
+        selected_count: request.paths.len(),
+        message: format!(
+            "Updated extension visibility for {} item(s)",
+            request.paths.len()
+        ),
+        payload: json!({ "paths": request.paths, "hidden": hidden }),
+    })
+}
+
+fn applescript_string(path: &Path) -> String {
+    path.display()
+        .to_string()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+}
+
+fn append_command_log(
+    log_path: &Path,
+    command: &str,
+    option: Option<&str>,
+    operation: &str,
+    paths: &[PathBuf],
+) -> ActionExecutionResult<()> {
+    if let Some(parent) = log_path.parent() {
         fs::create_dir_all(parent).map_err(|source| ActionError::Io {
             path: parent.to_path_buf(),
             source,
         })?;
     }
-    fs::copy(&source, &target).map_err(|source_error| ActionError::Io {
-        path: source,
-        source: source_error,
-    })?;
-
-    Ok(ActionResult {
-        action_id: request.action_id,
-        selected_count: request.paths.len(),
-        message: format!("Exported logs to {}", target.display()),
-        payload: json!({ "path": target.display().to_string() }),
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)
+        .map_err(|source| ActionError::Io {
+            path: log_path.to_path_buf(),
+            source,
+        })?;
+    let mut parts = vec![command.to_string()];
+    if let Some(option) = option {
+        parts.push(option.to_string());
+    }
+    parts.push(operation.to_string());
+    parts.extend(paths.iter().map(|path| path.display().to_string()));
+    writeln!(file, "{}", parts.join("\t")).map_err(|source| ActionError::Io {
+        path: log_path.to_path_buf(),
+        source,
     })
 }
 
@@ -1206,6 +1486,7 @@ fn extract_zip(archive_path: &Path, output_dir: &Path) -> ActionExecutionResult<
         path: archive_path.to_path_buf(),
         source,
     })?;
+    validate_zip_targets_available(&mut archive, archive_path, output_dir)?;
 
     for index in 0..archive.len() {
         let mut entry = archive
@@ -1239,6 +1520,30 @@ fn extract_zip(archive_path: &Path, output_dir: &Path) -> ActionExecutionResult<
             path: target,
             source,
         })?;
+    }
+
+    Ok(())
+}
+
+fn validate_zip_targets_available(
+    archive: &mut zip::ZipArchive<File>,
+    archive_path: &Path,
+    output_dir: &Path,
+) -> ActionExecutionResult<()> {
+    for index in 0..archive.len() {
+        let entry = archive
+            .by_index(index)
+            .map_err(|source| ActionError::Archive {
+                path: archive_path.to_path_buf(),
+                source,
+            })?;
+        let Some(enclosed) = entry.enclosed_name().map(Path::to_path_buf) else {
+            continue;
+        };
+        let target = output_dir.join(enclosed);
+        if target.exists() {
+            return Err(ActionError::TargetExists(target.display().to_string()));
+        }
     }
 
     Ok(())

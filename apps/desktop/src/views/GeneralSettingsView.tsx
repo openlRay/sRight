@@ -54,9 +54,13 @@ export default function GeneralSettingsView() {
                     <Card.Content>
                         <SettingRow
                             title="Finder 右键扩展"
-                            description="在系统设置中启用 Finder Extension 后，Finder 右键菜单会显示 sRight。"
+                            description="在扩展 > 文件提供程序中启用 sRight 后，Finder 右键菜单会显示工具箱功能。"
                             action={
-                                <Button variant="secondary" isDisabled={busy} onPress={() => void openExtensionSettings()}>
+                                <Button
+                                    variant="secondary"
+                                    isDisabled={busy}
+                                    onPress={() => void openExtensionSettings()}
+                                >
                                     <ExternalLink size={16} />
                                     扩展启用引导
                                 </Button>
@@ -66,7 +70,11 @@ export default function GeneralSettingsView() {
                             title="磁盘访问权限"
                             description="部分功能无法使用时，您可以授予完全磁盘访问权限来解决。"
                             action={
-                                <Button variant="secondary" isDisabled={busy} onPress={() => void openPermissionSettings()}>
+                                <Button
+                                    variant="secondary"
+                                    isDisabled={busy}
+                                    onPress={() => void openPermissionSettings()}
+                                >
                                     <ExternalLink size={16} />
                                     权限设置引导
                                 </Button>

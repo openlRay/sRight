@@ -65,6 +65,171 @@ fn default_config_includes_general_interaction_preferences() {
 }
 
 #[test]
+fn default_config_includes_independent_menu_icon_preferences() {
+    let config = default_config();
+
+    assert!(config.menu_icons.new_file);
+    assert!(config.menu_icons.send_to);
+    assert!(config.menu_icons.favorite_dirs);
+    assert!(config.menu_icons.toolbox);
+}
+
+#[test]
+fn menu_tree_respects_independent_menu_icon_preferences() {
+    let _guard = ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let support_dir = temp_support_dir("menu-icons");
+    std::env::set_var("SRIGHT_APP_SUPPORT_DIR", &support_dir);
+
+    let mut config = default_config();
+    config.menu_icons.new_file = false;
+    config.menu_icons.send_to = false;
+    config.menu_icons.favorite_dirs = false;
+    config.menu_icons.toolbox = false;
+    save_config(&config).expect("config should save");
+
+    let loaded = load_or_init_config().expect("config should load");
+
+    for title in ["新建文件", "发送文件到", "常用目录", "工具箱"] {
+        let item = loaded
+            .menu_tree
+            .iter()
+            .find(|item| item.title == title)
+            .expect("menu group should exist");
+        assert_eq!(item.icon, None, "{title} group icon should be hidden");
+        assert!(
+            item.children.iter().all(|child| child.icon.is_none()),
+            "{title} child icons should be hidden"
+        );
+    }
+
+    std::env::remove_var("SRIGHT_APP_SUPPORT_DIR");
+}
+
+#[test]
+fn menu_tree_promotes_new_file_items_marked_for_main_menu() {
+    let _guard = ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let support_dir = temp_support_dir("new-file-main-menu");
+    fs::create_dir_all(&support_dir).unwrap();
+    std::env::set_var("SRIGHT_APP_SUPPORT_DIR", &support_dir);
+    fs::write(
+        support_dir.join("config.json"),
+        r#"{
+  "enabled": true,
+  "show_icons": true,
+  "merge_groups": false,
+  "dangerous_confirmation": { "enabled": true, "action_ids": [] },
+  "file_templates": [
+    { "id": "text", "title": "TXT", "file_name": "Untitled.txt", "enabled": true }
+  ],
+  "menus": [
+    { "id": "new_file.text", "title": "TXT", "enabled": false, "main_menu": true, "dangerous": false, "file_kinds": [], "extensions": [] }
+  ]
+}
+"#,
+    )
+    .unwrap();
+
+    let config = load_or_init_config().expect("config should load");
+    assert!(config
+        .menu_tree
+        .iter()
+        .any(|item| item.action_id.as_deref() == Some("new_file.text")));
+    if let Some(new_file_group) = config
+        .menu_tree
+        .iter()
+        .find(|item| item.title == "新建文件")
+    {
+        assert!(!new_file_group
+            .children
+            .iter()
+            .any(|item| item.action_id.as_deref() == Some("new_file.text")));
+    }
+
+    std::env::remove_var("SRIGHT_APP_SUPPORT_DIR");
+}
+
+#[test]
+fn menu_tree_keeps_enabled_new_file_items_in_new_file_group_when_not_main_menu() {
+    let _guard = ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let support_dir = temp_support_dir("new-file-enabled-group");
+    fs::create_dir_all(&support_dir).unwrap();
+    std::env::set_var("SRIGHT_APP_SUPPORT_DIR", &support_dir);
+    fs::write(
+        support_dir.join("config.json"),
+        r#"{
+  "enabled": true,
+  "show_icons": true,
+  "merge_groups": false,
+  "dangerous_confirmation": { "enabled": true, "action_ids": [] },
+  "file_templates": [
+    { "id": "text", "title": "TXT", "file_name": "Untitled.txt", "enabled": true }
+  ],
+  "menus": [
+    { "id": "new_file.text", "title": "TXT", "enabled": true, "main_menu": false, "dangerous": false, "file_kinds": [], "extensions": [] }
+  ]
+}
+"#,
+    )
+    .unwrap();
+
+    let config = load_or_init_config().expect("config should load");
+    let new_file_group = config
+        .menu_tree
+        .iter()
+        .find(|item| item.title == "新建文件")
+        .expect("new file group should exist");
+    assert!(new_file_group
+        .children
+        .iter()
+        .any(|item| item.action_id.as_deref() == Some("new_file.text")));
+    assert!(!config
+        .menu_tree
+        .iter()
+        .any(|item| item.action_id.as_deref() == Some("new_file.text")));
+
+    std::env::remove_var("SRIGHT_APP_SUPPORT_DIR");
+}
+
+#[test]
+fn menu_tree_promotes_toolbox_items_marked_for_main_menu() {
+    let _guard = ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    let support_dir = temp_support_dir("toolbox-main-menu");
+    fs::create_dir_all(&support_dir).unwrap();
+    std::env::set_var("SRIGHT_APP_SUPPORT_DIR", &support_dir);
+    fs::write(
+        support_dir.join("config.json"),
+        r#"{
+  "enabled": true,
+  "show_icons": true,
+  "merge_groups": false,
+  "dangerous_confirmation": { "enabled": true, "action_ids": [] },
+  "menus": [
+    { "id": "copy.path", "title": "拷贝路径", "enabled": true, "main_menu": true, "dangerous": false, "file_kinds": [], "extensions": [] }
+  ]
+}
+"#,
+    )
+    .unwrap();
+
+    let config = load_or_init_config().expect("config should load");
+    assert!(config
+        .menu_tree
+        .iter()
+        .any(|item| item.action_id.as_deref() == Some("copy.path")));
+    let toolbox = config
+        .menu_tree
+        .iter()
+        .find(|item| item.title == "工具箱")
+        .expect("toolbox group should still exist");
+    assert!(!toolbox
+        .children
+        .iter()
+        .any(|item| item.action_id.as_deref() == Some("copy.path")));
+
+    std::env::remove_var("SRIGHT_APP_SUPPORT_DIR");
+}
+
+#[test]
 fn load_or_init_config_upgrades_older_config_with_phase3_defaults() {
     let _guard = ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
     let support_dir = temp_support_dir("upgrade");

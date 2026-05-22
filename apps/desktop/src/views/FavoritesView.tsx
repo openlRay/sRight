@@ -1,5 +1,5 @@
 import { Button, Input, Table, Tooltip } from '@heroui/react';
-import { FolderOpen, FolderPlus, Trash2 } from 'lucide-react';
+import { FolderOpen, FolderPlus, RefreshCcw, Trash2 } from 'lucide-react';
 import { useState, type DragEvent, type FocusEvent, type KeyboardEvent } from 'react';
 import { VisibleCheckbox, VisibleSwitch } from '../components/VisibleControls';
 import { usePreferenceStore } from '../stores/preferences';
@@ -13,7 +13,7 @@ export default function FavoritesView() {
     const resetFavoriteDirs = usePreferenceStore(state => state.resetFavoriteDirs);
     const renameFavoriteDir = usePreferenceStore(state => state.renameFavoriteDir);
     const reorderFavoriteDirs = usePreferenceStore(state => state.reorderFavoriteDirs);
-    const setTopLevelFlag = usePreferenceStore(state => state.setTopLevelFlag);
+    const setMenuIconVisibility = usePreferenceStore(state => state.setMenuIconVisibility);
     const toggleAllFavorites = usePreferenceStore(state => state.toggleAllFavorites);
     const [selectedDirectoryId, setSelectedDirectoryId] = useState<string | null>(null);
     const [editingDirectoryId, setEditingDirectoryId] = useState<string | null>(null);
@@ -169,18 +169,24 @@ export default function FavoritesView() {
                     删除目录
                 </Button>
                 <Button isDisabled={busy} onPress={() => void resetFavoriteDirs()}>
+                    <RefreshCcw size={18} />
                     重置
                 </Button>
             </div>
 
             <div className="template-options">
                 <VisibleSwitch
-                    isSelected={config.show_icons}
-                    onChange={enabled => void setTopLevelFlag('show_icons', enabled)}
+                    size="sm"
+                    isSelected={config.menu_icons.favorite_dirs}
+                    onChange={enabled => void setMenuIconVisibility('favorite_dirs', enabled)}
                 >
                     显示图标
                 </VisibleSwitch>
-                <VisibleSwitch isSelected={favoritesEnabled} onChange={enabled => void toggleAllFavorites(enabled)}>
+                <VisibleSwitch
+                    size="sm"
+                    isSelected={favoritesEnabled}
+                    onChange={enabled => void toggleAllFavorites(enabled)}
+                >
                     启用常用目录
                 </VisibleSwitch>
             </div>

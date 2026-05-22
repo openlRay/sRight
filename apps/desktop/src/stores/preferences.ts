@@ -8,6 +8,7 @@ import {
     pickTemplateFile,
     saveConfig,
     type FavoriteDirectory,
+    type MenuIconVisibility,
     type SRightConfig
 } from "../lib/api";
 import {
@@ -22,7 +23,8 @@ import {
     uniqueDirectoryId
 } from "../lib/directory-config";
 import { templateInfoFromPath } from "../lib/file-template-utils";
-import { setTemplateMenuEnabled, syncTemplateMenuTitle } from "../lib/template-menu-config";
+import { resetTemplateMenus, setTemplateMenuEnabled, syncTemplateMenuTitle } from "../lib/template-menu-config";
+import { resetToolboxMenus } from "../lib/toolbox-actions";
 
 type TopLevelFlag = "enabled" | "show_icons" | "show_menu_bar_icon";
 
@@ -44,24 +46,27 @@ interface PreferenceState {
     removeTemplates: (templateIds: string[]) => Promise<void>;
     resetFavoriteDirs: () => Promise<void>;
     resetSendDirs: () => Promise<void>;
+    resetTemplates: () => Promise<void>;
+    resetToolbox: () => Promise<void>;
     renameFavoriteDir: (directoryId: string, title: string) => Promise<void>;
     renameSendDir: (directoryId: string, title: string) => Promise<void>;
     renameTemplate: (templateId: string, title: string) => Promise<void>;
     reorderFavoriteDirs: (fromDirectoryId: string, targetDirectoryId: string) => Promise<void>;
     reorderSendDirs: (fromDirectoryId: string, targetDirectoryId: string) => Promise<void>;
     reorderTemplates: (fromTemplateId: string, targetTemplateId: string) => Promise<void>;
-    setCustomScriptCommand: (scriptId: string, command: string) => Promise<void>;
     setDangerousActionConfirmation: (actionId: string, enabled: boolean) => Promise<void>;
     setDangerousConfirmationEnabled: (enabled: boolean) => Promise<void>;
+    setMenuIconVisibility: (key: keyof MenuIconVisibility, enabled: boolean) => Promise<void>;
     setSettingsShortcut: (shortcut: string) => Promise<void>;
     setMenuEnabled: (actionId: string, enabled: boolean) => Promise<void>;
+    setMenuMainMenu: (actionId: string, enabled: boolean) => Promise<void>;
     renameMenu: (actionId: string, title: string) => Promise<void>;
+    removeMenus: (actionIds: string[]) => Promise<void>;
     reorderMenus: (fromActionId: string, targetActionId: string) => Promise<void>;
     setTemplateEnabled: (templateId: string, enabled: boolean) => Promise<void>;
     setTemplateMainMenu: (templateId: string, enabled: boolean) => Promise<void>;
     setTopLevelFlag: (key: TopLevelFlag, enabled: boolean) => Promise<void>;
     toggleAllFavorites: (enabled: boolean) => Promise<void>;
-    toggleCustomScript: (scriptId: string, enabled: boolean) => Promise<void>;
     toggleFavoriteDir: (directoryId: string, enabled: boolean) => Promise<void>;
     toggleSendMenus: (prefix: "send.copy_to." | "send.move_to.", enabled: boolean) => Promise<void>;
 }
@@ -83,12 +88,9 @@ function setMenuEnabledInConfig(config: SRightConfig, actionId: string, enabled:
     const menu = config.menus.find((item) => item.id === actionId);
     if (menu) {
         menu.enabled = enabled;
-    }
-
-    const scriptId = actionId.startsWith("script.run.") ? actionId.slice("script.run.".length) : null;
-    const script = scriptId ? config.custom_scripts.find((item) => item.id === scriptId) : null;
-    if (script) {
-        script.enabled = enabled;
+        if (!enabled) {
+            menu.main_menu = false;
+        }
     }
 }
 
@@ -166,12 +168,32 @@ export const usePreferenceStore = create<PreferenceState>((set, get) => {
             });
         },
 
+        async setMenuMainMenu(actionId, enabled) {
+            await updateConfig((config) => {
+                const menu = config.menus.find((item) => item.id === actionId);
+                if (menu) {
+                    menu.main_menu = enabled;
+                }
+            });
+        },
+
         async renameMenu(actionId, title) {
             await updateConfig((config) => {
                 const menu = config.menus.find((item) => item.id === actionId);
                 if (menu) {
                     menu.title = title.trim() || menu.title;
                 }
+            });
+        },
+
+        async removeMenus(actionIds) {
+            await updateConfig((config) => {
+                const ids = new Set(actionIds);
+                config.menus = config.menus.filter((item) => !ids.has(item.id));
+                config.removed_menus = Array.from(new Set([...(config.removed_menus ?? []), ...actionIds]));
+                config.dangerous_confirmation.action_ids = config.dangerous_confirmation.action_ids.filter(
+                    (actionId) => !ids.has(actionId)
+                );
             });
         },
 
@@ -187,6 +209,12 @@ export const usePreferenceStore = create<PreferenceState>((set, get) => {
             });
         },
 
+        async setMenuIconVisibility(key, enabled) {
+            await updateConfig((config) => {
+                config.menu_icons[key] = enabled;
+            });
+        },
+
         async setDangerousConfirmationEnabled(enabled) {
             await updateConfig((config) => {
                 config.dangerous_confirmation.enabled = enabled;
@@ -197,6 +225,7 @@ export const usePreferenceStore = create<PreferenceState>((set, get) => {
             await updateConfig((config) => {
                 const actionIds = new Set(config.dangerous_confirmation.action_ids);
                 if (enabled) {
+                    config.dangerous_confirmation.enabled = true;
                     actionIds.add(actionId);
                 } else {
                     actionIds.delete(actionId);
@@ -413,6 +442,19 @@ export const usePreferenceStore = create<PreferenceState>((set, get) => {
             });
         },
 
+        async resetTemplates() {
+            await updateConfig((config) => {
+                resetTemplateMenus(config);
+            });
+        },
+
+        async resetToolbox() {
+            await updateConfig((config) => {
+                config.removed_menus = [];
+                resetToolboxMenus(config);
+            });
+        },
+
         async toggleSendMenus(prefix, enabled) {
             await updateConfig((config) => {
                 for (const menu of config.menus) {
@@ -429,25 +471,6 @@ export const usePreferenceStore = create<PreferenceState>((set, get) => {
                     directory.enabled = enabled;
                     setMenuEnabledInConfig(config, favoriteMenuId(directory.id), enabled);
                 }
-            });
-        },
-
-        async setCustomScriptCommand(scriptId, command) {
-            await updateConfig((config) => {
-                const script = config.custom_scripts.find((item) => item.id === scriptId);
-                if (script) {
-                    script.command = command;
-                }
-            });
-        },
-
-        async toggleCustomScript(scriptId, enabled) {
-            await updateConfig((config) => {
-                const script = config.custom_scripts.find((item) => item.id === scriptId);
-                if (script) {
-                    script.enabled = enabled;
-                }
-                setMenuEnabledInConfig(config, `script.run.${scriptId}`, enabled);
             });
         }
     };

@@ -1,5 +1,5 @@
 import { Button, Input, Table, Tooltip } from '@heroui/react';
-import { FolderInput, FolderPlus, Trash2 } from 'lucide-react';
+import { FolderInput, FolderPlus, RefreshCcw, Trash2 } from 'lucide-react';
 import { useState, type DragEvent, type FocusEvent, type KeyboardEvent } from 'react';
 import { VisibleCheckbox, VisibleSwitch } from '../components/VisibleControls';
 import { usePreferenceStore } from '../stores/preferences';
@@ -12,7 +12,7 @@ export default function SendToView() {
     const renameSendDir = usePreferenceStore(state => state.renameSendDir);
     const reorderSendDirs = usePreferenceStore(state => state.reorderSendDirs);
     const resetSendDirs = usePreferenceStore(state => state.resetSendDirs);
-    const setTopLevelFlag = usePreferenceStore(state => state.setTopLevelFlag);
+    const setMenuIconVisibility = usePreferenceStore(state => state.setMenuIconVisibility);
     const toggleSendMenus = usePreferenceStore(state => state.toggleSendMenus);
     const [selectedDirectoryId, setSelectedDirectoryId] = useState<string | null>(null);
     const [editingDirectoryId, setEditingDirectoryId] = useState<string | null>(null);
@@ -160,14 +160,15 @@ export default function SendToView() {
                     删除目录
                 </Button>
                 <Button isDisabled={busy} onPress={() => void resetSendDirs()}>
+                    <RefreshCcw size={18} />
                     重置
                 </Button>
             </div>
 
             <div className="template-options">
                 <VisibleSwitch
-                    isSelected={config.show_icons}
-                    onChange={enabled => void setTopLevelFlag('show_icons', enabled)}
+                    isSelected={config.menu_icons.send_to}
+                    onChange={enabled => void setMenuIconVisibility('send_to', enabled)}
                 >
                     显示图标
                 </VisibleSwitch>

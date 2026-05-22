@@ -8,7 +8,7 @@ pub use actions::{
     ActionResult,
 };
 pub use config::{
-    default_config, load_or_init_config, save_config, ArchiveConfig, CustomScript,
+    apply_action_result_updates, default_config, load_or_init_config, save_config, ArchiveConfig,
     DangerousConfirmationConfig, FavoriteDirectory, FileTemplate, ImageConfig, MenuItem,
     MenuTreeItem, OpenApp, SRightConfig, ToolboxConfig,
 };

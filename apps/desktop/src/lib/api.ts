@@ -4,6 +4,7 @@ export interface MenuItem {
     id: string;
     title: string;
     enabled: boolean;
+    main_menu?: boolean;
     dangerous: boolean;
     file_kinds: string[];
     extensions: string[];
@@ -19,6 +20,13 @@ export interface MenuTreeItem {
 export interface DangerousConfirmationConfig {
     enabled: boolean;
     action_ids: string[];
+}
+
+export interface MenuIconVisibility {
+    new_file: boolean;
+    send_to: boolean;
+    favorite_dirs: boolean;
+    toolbox: boolean;
 }
 
 export interface FileTemplate {
@@ -56,17 +64,10 @@ export interface ToolboxConfig {
     translation_provider: string;
 }
 
-export interface CustomScript {
-    id: string;
-    title: string;
-    command: string;
-    enabled: boolean;
-    dangerous: boolean;
-}
-
 export interface SRightConfig {
     enabled: boolean;
     show_icons: boolean;
+    menu_icons: MenuIconVisibility;
     show_menu_bar_icon: boolean;
     settings_shortcut: string;
     merge_groups: boolean;
@@ -78,7 +79,7 @@ export interface SRightConfig {
     archive: ArchiveConfig;
     image: ImageConfig;
     toolbox: ToolboxConfig;
-    custom_scripts: CustomScript[];
+    removed_menus: string[];
     menus: MenuItem[];
     menu_tree: MenuTreeItem[];
 }

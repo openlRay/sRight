@@ -5,8 +5,8 @@ use std::process::{Command as ProcessCommand, Stdio};
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use sright_core::{
-    append_action_log, default_config, execute_configured_action, load_or_init_config,
-    read_recent_logs, save_config, ActionLogEntry, ActionRequest,
+    append_action_log, apply_action_result_updates, default_config, execute_configured_action,
+    load_or_init_config, read_recent_logs, save_config, ActionLogEntry, ActionRequest,
 };
 
 #[derive(Debug, Parser)]
@@ -151,7 +151,7 @@ fn run_action(command: ActionCommand) -> Result<()> {
 fn run_action_request(args: ActionRunArgs) -> Result<()> {
     let result_path = args.result_path.clone();
     let selected_count = args.paths.len();
-    let config = load_or_init_config().context("could not load config")?;
+    let mut config = load_or_init_config().context("could not load config")?;
     if !config.enabled {
         let message = "sRight is disabled in config";
         append_action_log(&ActionLogEntry::failure(
@@ -223,7 +223,33 @@ fn run_action_request(args: ActionRunArgs) -> Result<()> {
         &config,
     ) {
         Ok(result) => {
-            if let Some(text) = result.payload.get("text").and_then(|value| value.as_str()) {
+            if result
+                .payload
+                .get("clipboard_operation")
+                .and_then(|value| value.as_str())
+                == Some("cut")
+            {
+                let paths = result
+                    .payload
+                    .get("paths")
+                    .and_then(|value| value.as_array())
+                    .map(|paths| {
+                        paths
+                            .iter()
+                            .filter_map(|path| path.as_str().map(str::to_string))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                if let Err(error) = write_cut_clipboard(&paths) {
+                    append_action_log(&ActionLogEntry::failure(
+                        &result.action_id,
+                        result.selected_count,
+                        "Action failed",
+                        format!("could not write cut files to clipboard: {error:#}"),
+                    ))?;
+                    return Err(error).context("could not write cut files to clipboard");
+                }
+            } else if let Some(text) = result.payload.get("text").and_then(|value| value.as_str()) {
                 if let Err(error) = write_clipboard_text(text) {
                     append_action_log(&ActionLogEntry::failure(
                         &result.action_id,
@@ -233,6 +259,9 @@ fn run_action_request(args: ActionRunArgs) -> Result<()> {
                     ))?;
                     return Err(error).context("could not write action text to clipboard");
                 }
+            }
+            if apply_action_result_updates(&mut config, &result) {
+                save_config(&config).context("could not save config updates from action")?;
             }
 
             append_action_log(&ActionLogEntry::success(
@@ -308,6 +337,37 @@ fn run_logs(command: LogsCommand) -> Result<()> {
                 .with_context(|| format!("could not write {}", path.display()))?;
             println!("{}", path.display());
         }
+    }
+
+    Ok(())
+}
+
+fn write_cut_clipboard(paths: &[String]) -> Result<()> {
+    if let Ok(path) = std::env::var("SRIGHT_CLIPBOARD_FILE") {
+        std::fs::write(Path::new(&path), format!("cut\n{}\n", paths.join("\n")))
+            .with_context(|| format!("could not write {path}"))?;
+        return Ok(());
+    }
+
+    let script = r#"
+function run(argv) {
+    ObjC.import('AppKit');
+    ObjC.import('Foundation');
+    const pasteboard = $.NSPasteboard.generalPasteboard;
+    const urls = $.NSMutableArray.array;
+    argv.forEach(path => urls.addObject($.NSURL.fileURLWithPath(path)));
+    pasteboard.clearContents();
+    pasteboard.writeObjects(urls);
+    pasteboard.setPropertyListForType($(['move']), 'com.apple.finder.pasteboard.operations');
+}
+"#;
+    let status = ProcessCommand::new("/usr/bin/osascript")
+        .args(["-l", "JavaScript", "-e", script])
+        .args(paths)
+        .status()
+        .context("could not start osascript")?;
+    if !status.success() {
+        bail!("osascript exited with status {status}");
     }
 
     Ok(())

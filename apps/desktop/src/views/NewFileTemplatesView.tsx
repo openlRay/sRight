@@ -1,8 +1,9 @@
 import { Button, Input, Table } from '@heroui/react';
-import { FilePlus2, Trash2 } from 'lucide-react';
+import { FilePlus2, RefreshCcw, Trash2 } from 'lucide-react';
 import { useState, type DragEvent, type FocusEvent, type KeyboardEvent } from 'react';
 import { VisibleCheckbox, VisibleSwitch } from '../components/VisibleControls';
 import { type FileTemplate } from '../lib/api';
+import { isTemplateMenuInMainMenu } from '../lib/template-menu-config';
 import { usePreferenceStore } from '../stores/preferences';
 
 const templateIconMeta: Record<string, { className: string; label: string; mark: string }> = {
@@ -32,9 +33,10 @@ export default function NewFileTemplatesView() {
     const reorderTemplates = usePreferenceStore(state => state.reorderTemplates);
     const setTemplateEnabled = usePreferenceStore(state => state.setTemplateEnabled);
     const setTemplateMainMenu = usePreferenceStore(state => state.setTemplateMainMenu);
-    const setTopLevelFlag = usePreferenceStore(state => state.setTopLevelFlag);
+    const setMenuIconVisibility = usePreferenceStore(state => state.setMenuIconVisibility);
     const addTemplateFromPicker = usePreferenceStore(state => state.addTemplateFromPicker);
     const removeTemplates = usePreferenceStore(state => state.removeTemplates);
+    const resetTemplates = usePreferenceStore(state => state.resetTemplates);
     const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
     const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
     const [draggingTemplateId, setDraggingTemplateId] = useState<string | null>(null);
@@ -44,12 +46,8 @@ export default function NewFileTemplatesView() {
         return null;
     }
 
-    function templateMenu(templateId: string) {
-        return config?.menus.find(item => item.id === `new_file.${templateId}`) ?? null;
-    }
-
     function isTemplateInMainMenu(templateId: string) {
-        return templateMenu(templateId)?.enabled ?? false;
+        return config ? isTemplateMenuInMainMenu(config, templateId) : false;
     }
 
     function templateExtension(fileName: string) {
@@ -185,6 +183,7 @@ export default function NewFileTemplatesView() {
                                         <Table.Cell>
                                             <VisibleSwitch
                                                 aria-label={`启用 ${template.title}`}
+                                                size="sm"
                                                 isSelected={template.enabled}
                                                 onChange={enabled => void setTemplateEnabled(template.id, enabled)}
                                             />
@@ -192,6 +191,7 @@ export default function NewFileTemplatesView() {
                                         <Table.Cell>
                                             <VisibleSwitch
                                                 aria-label={`${template.title} 显示在主菜单`}
+                                                size="sm"
                                                 isDisabled={!template.enabled}
                                                 isSelected={isTemplateInMainMenu(template.id)}
                                                 onChange={enabled => void setTemplateMainMenu(template.id, enabled)}
@@ -219,12 +219,16 @@ export default function NewFileTemplatesView() {
                     <Trash2 size={18} />
                     删除选中行
                 </Button>
+                <Button isDisabled={busy} onPress={() => void resetTemplates()}>
+                    <RefreshCcw size={18} />
+                    重置
+                </Button>
             </div>
 
             <div className="template-options">
                 <VisibleSwitch
-                    isSelected={config.show_icons}
-                    onChange={enabled => void setTopLevelFlag('show_icons', enabled)}
+                    isSelected={config.menu_icons.new_file}
+                    onChange={enabled => void setMenuIconVisibility('new_file', enabled)}
                 >
                     显示图标
                 </VisibleSwitch>

@@ -13,3 +13,5 @@ const formStyles = readFileSync(new URL('../src/styles/forms.less', import.meta.
 
 assert.match(formStyles, /\.settings-table[\s\S]*display: flex[\s\S]*flex-direction: column/);
 assert.match(formStyles, /\.settings-table-scroll[\s\S]*flex: 1 1 auto[\s\S]*overflow: auto/);
+assert.match(formStyles, /\.settings-table-scroll[\s\S]*table[\s\S]*min-width: 760px/);
+assert.match(formStyles, /\.settings-table-scroll[\s\S]*th:first-child[\s\S]*td:first-child[\s\S]*position: sticky/);
